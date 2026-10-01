@@ -1,0 +1,21 @@
+# Built single-file distribution. Rebuilt by `make dist` from lib/ and cmd/;
+# only the published digest is tracked, so a stale binary can never be what a
+# reader reviews.
+dist/*
+!dist/.gitkeep
+!dist/tmbox.zsh.sha256
+
+# Per-run scratch: credentials, ssh keys, known_hosts, recorded API responses.
+# NEVER committed.
+.run/
+
+# Long-lived credentials. NEVER committed.
+.secrets/
+
+# Recorded fixtures may carry a real server address, username or box id, so the
+# recording lives locally and only the redacted ones under test/fixtures/ are
+# tracked.
+test/fixtures/raw/
+
+.DS_Store
+*.log

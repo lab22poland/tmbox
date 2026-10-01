@@ -1,0 +1,101 @@
+{
+  "server_types": [
+    {
+      "id": 45,
+      "name": "cax11",
+      "architecture": "arm",
+      "cores": 2,
+      "cpu_type": "shared",
+      "category": "cost_optimized",
+      "deprecated": false,
+      "deprecation": null,
+      "description": "CAX11",
+      "disk": 40,
+      "memory": 4,
+      "prices": [
+        {
+          "location": "fsn1",
+          "price_hourly": {
+            "gross": "0.0096000000000000",
+            "net": "0.0096000000"
+          },
+          "price_monthly": {
+            "gross": "5.9900000000000000",
+            "net": "5.9900000000"
+          },
+          "included_traffic": 21990232555520,
+          "price_per_tb_traffic": {
+            "gross": "1.0000000000000000",
+            "net": "1.0000000000"
+          }
+        },
+        {
+          "location": "hel1",
+          "price_hourly": {
+            "gross": "0.0096000000000000",
+            "net": "0.0096000000"
+          },
+          "price_monthly": {
+            "gross": "5.9900000000000000",
+            "net": "5.9900000000"
+          },
+          "included_traffic": 21990232555520,
+          "price_per_tb_traffic": {
+            "gross": "1.0000000000000000",
+            "net": "1.0000000000"
+          }
+        },
+        {
+          "location": "nbg1",
+          "price_hourly": {
+            "gross": "0.0096000000000000",
+            "net": "0.0096000000"
+          },
+          "price_monthly": {
+            "gross": "5.9900000000000000",
+            "net": "5.9900000000"
+          },
+          "included_traffic": 21990232555520,
+          "price_per_tb_traffic": {
+            "gross": "1.0000000000000000",
+            "net": "1.0000000000"
+          }
+        }
+      ],
+      "storage_type": "local",
+      "locations": [
+        {
+          "id": 1,
+          "name": "fsn1",
+          "available": true,
+          "recommended": false,
+          "deprecation": null
+        },
+        {
+          "id": 2,
+          "name": "nbg1",
+          "available": true,
+          "recommended": false,
+          "deprecation": null
+        },
+        {
+          "id": 3,
+          "name": "hel1",
+          "available": true,
+          "recommended": true,
+          "deprecation": null
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "last_page": 1,
+      "next_page": null,
+      "page": 1,
+      "per_page": 25,
+      "previous_page": null,
+      "total_entries": 1
+    }
+  }
+}

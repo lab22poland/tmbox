@@ -1,0 +1,10 @@
+# Keep the SHA-pinned actions in .github/workflows current. A pin that is never
+# moved is safe from a hijacked tag and exposed to every fix it never received.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

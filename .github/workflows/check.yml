@@ -1,0 +1,76 @@
+# The gates, on the platform the product runs on.
+#
+# The Mac half is tested under Apple's own /bin/zsh, so this needs a macOS
+# runner rather than a Linux one with a zsh package; macos-26 is pinned rather
+# than macos-latest so that the label moving to a new release is a change made
+# here, deliberately, and not a red build on an unrelated commit.
+#
+# No release is published from here. The release is cut by hand; what this
+# proves is that the digest tracked in dist/tmbox.zsh.sha256 is the one the
+# tagged source builds to.
+
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Supersede a stale run on a PR branch; every run on main completes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mac:
+    name: gates and digest (macOS 26)
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          /bin/zsh --version
+          /bin/bash --version | head -1
+          command -v jq python3 plutil perl shasum base64
+          python3 --version
+          jq --version
+
+      - name: make check-all
+        run: make check-all
+
+      - name: make dist
+        run: make dist
+
+      - name: The tracked digest is reproducible from source
+        run: |
+          if ! git diff --exit-code -- dist/tmbox.zsh.sha256; then
+            echo "::error file=dist/tmbox.zsh.sha256::the digest built from this commit differs from the tracked one - run make dist and commit dist/tmbox.zsh.sha256"
+            exit 1
+          fi
+
+  appliance:
+    # tools/lint.zsh runs shellcheck on the bash half when it is installed, and
+    # the macOS image does not ship it, so on the Mac job that half gets only
+    # bash -n. The Ubuntu image does ship it.
+    name: shellcheck (appliance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          bash -n appliance/*.sh
+          shellcheck -s bash -S warning appliance/*.sh

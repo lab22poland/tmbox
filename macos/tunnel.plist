@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The LaunchDaemon that keeps the forward up.
+
+  A template: cmd/tunnel.zsh substitutes the @TOKENS@ at install time and
+  validates the result with plutil before it is written, because a malformed
+  plist is rejected by launchd with a message that says nothing useful.
+
+  **A daemon, not an agent.** Two reasons, and only the second is about
+  privilege. Time Machine backs up whether or not anyone is logged in, and a
+  LaunchAgent stops at logout - so an agent would silently turn "hourly
+  backups" into "backups while you are at the keyboard". And the forward has to
+  bind port 445, which needs root, because `tmutil setdestination` refuses to
+  validate a destination on any other port.
+
+  **Nothing secret is in here.** The arguments are a host, a user name and two
+  paths. The key itself sits next to this file at mode 0600.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@HELPER@</string>
+    <string>--host</string>
+    <string>@HOST@</string>
+    <string>--user</string>
+    <string>@USER@</string>
+    <string>--key</string>
+    <string>@KEY@</string>
+    <string>--known-hosts</string>
+    <string>@KNOWN_HOSTS@</string>
+    <string>--bind</string>
+    <string>@BIND@</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!--
+    KeepAlive with no conditions: this connection is the backup path, and there
+    is no state in which it should be down. A closed laptop, a changed address
+    or a rebooted appliance all end the same way - ssh exits and launchd starts
+    it again.
+
+    ThrottleInterval raises launchd's ten-second floor to thirty. The failure
+    this guards against is an appliance that is up but not accepting the
+    forward, where a ten-second retry loop burns the connection budget and
+    fills the log. Thirty seconds is still well inside Time Machine's hourly
+    cycle, so a tunnel that recovers costs no backup.
+  -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!--
+    ssh says nothing at all when it is working, so anything here is a fault
+    worth keeping. The file is append-only: nothing rotates it in 0.1.0, which
+    installs no newsyslog configuration. A tunnel that keeps failing adds ssh's
+    error output on each restart, and restarts at most once per
+    ThrottleInterval.
+  -->
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+
+  <!--
+    No ProcessType: the default is what is wanted. Background would have
+    launchd deprioritise the job's I/O and CPU, and this job is carrying every
+    byte of every backup.
+  -->
+</dict>
+</plist>

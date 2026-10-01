@@ -1,0 +1,73 @@
+#!/usr/bin/expect -f
+#
+# Give `tmutil setdestination -p` the share password without a person typing it.
+#
+#   printf '%s' "$password" | expect -f setdest.exp <smb-url> [timeout]
+#
+# **Why expect at all.** tmutil reads the destination password from a terminal,
+# not from stdin: with stdin a pipe it prints its prompt and fails immediately
+# with "Invalid argument" (POSIX error 22). It has to be given a pty, and
+# /usr/bin/expect is the only thing on a stock Mac that can do that - Apple's
+# own build, signed com.apple.expect, in SIP-protected /usr/bin. Same category
+# as jq: not an installed dependency, part of the system.
+#
+# **Why the password arrives on stdin.** An argument would be in `ps` for as
+# long as the process lives, for every user on the machine. `gets stdin` before
+# the spawn keeps it in this process's memory and sends it down the pty.
+#
+# **Why the sleep.** tmutil writes the prompt before it starts reading, so a
+# send that arrives between the two is discarded and tmutil then reads an empty
+# line. That failure looks exactly like a wrong password: POSIX error 22 first,
+# authentication error 80 once the password is non-empty but truncated. Half a
+# second of patience is what distinguishes those from a real credential fault.
+#
+# **Why "\n" and not "\r".** This one cost an hour. tmutil does not strip a
+# carriage return from what it reads, so a password sent the way expect scripts
+# conventionally send one - terminated with \r - arrives with a trailing CR and
+# is rejected as wrong, with authentication error 80 and no hint that the
+# credential was ever received intact. Terminated with \n it succeeds.
+#
+# Exit status is tmutil's own, except:
+#   90  the prompt never appeared
+#   91  tmutil accepted the password and then stopped responding
+
+set timeout 30
+
+set pw  [gets stdin]
+set url [lindex $argv 0]
+set wait [expr {[llength $argv] > 1 ? [lindex $argv 1] : 300}]
+
+if {$pw eq ""} {
+  send_user "setdest: no password on stdin\n"
+  exit 64
+}
+
+spawn -noecho tmutil setdestination -a -p $url
+
+expect {
+  -re "(?i)password:" { sleep 0.5; send -- "$pw\n" }
+  timeout {
+    send_user "\nsetdest: tmutil never asked for a password\n"
+    exit 90
+  }
+  eof {
+    catch wait r
+    exit [lindex $r 3]
+  }
+}
+
+# Validating the destination means mounting the share over the forward, which on
+# a slow uplink is legitimately slow - hence a much longer wait here than for
+# the prompt. Bounded all the same: an installer that hangs for ever is worse
+# than one that fails with a sentence.
+set timeout $wait
+expect {
+  eof {}
+  timeout {
+    send_user "\nsetdest: tmutil stopped responding after the password\n"
+    exit 91
+  }
+}
+
+catch wait r
+exit [lindex $r 3]
