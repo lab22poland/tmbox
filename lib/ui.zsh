@@ -282,7 +282,7 @@ ui_spin_start() {
     while :; do
       for frame in $UI_SPIN_FRAMES; do
         elapsed=$(( $(_ui_epoch) - TMBOX_SPIN_START ))
-        print -rn -- "\r${TMBOX_ESC}[K  ${C_ACCENT}${frame}${C_RESET} ${TMBOX_SPIN_MSG} ${C_MUTED}(${elapsed}s)${C_RESET}" >&$TMBOX_UI_FD
+        print -rn -- $'\r'"${TMBOX_ESC}[K  ${C_ACCENT}${frame}${C_RESET} ${TMBOX_SPIN_MSG} ${C_MUTED}(${elapsed}s)${C_RESET}" >&$TMBOX_UI_FD
         sleep 0.1
       done
     done
@@ -318,7 +318,7 @@ ui_spin_stop() {
     kill "$TMBOX_SPIN_PID" 2>/dev/null
     wait "$TMBOX_SPIN_PID" 2>/dev/null
     TMBOX_SPIN_PID=""
-    _ui_raw "\r${TMBOX_ESC}[K"
+    _ui_raw $'\r'"${TMBOX_ESC}[K"
   fi
 
   local took=""
