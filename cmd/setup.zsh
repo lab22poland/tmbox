@@ -78,6 +78,18 @@ setup_require() {
 cmd_setup() {
   http_init || ui_die "Could not create a private temporary directory."
 
+  # Before anything is created. A run that cannot finish should stop while
+  # nothing is billing - and once the destination is set, it is not needed.
+  if [[ -z "$(state_get destination_id)" ]] && ! preflight_time_machine_ready; then
+    ui_blank
+    if state_has server_id; then
+      ui_say "Nothing was changed; the appliance this Mac already has is untouched."
+    else
+      ui_say "Nothing has been created, and nothing is being billed."
+    fi
+    exit 1
+  fi
+
   setup_step1_welcome
   setup_step2_account
   setup_step3_token
@@ -883,8 +895,8 @@ setup_step8_destination() {
       || ui_warn "The old destination could not be removed; continuing."
   fi
 
-  # Checked here rather than at startup: it is only relevant now, and failing
-  # at step 1 for it would stop a run that had nothing else wrong with it.
+  # Checked at startup too. Again here because the terminal can change between
+  # the two - a resumed run started from a different app, for one.
   preflight_time_machine_ready || {
     ui_blank
     ui_say "Everything up to here is built and recorded. Grant Full Disk Access and run tmbox setup again; it continues from this step."
@@ -920,8 +932,20 @@ setup_step8_destination() {
         ui_say "The share is reachable but not answering. This is usually a stale session left by a client that disappeared while holding the share open."
         ui_say "Run tmbox doctor, which finds and clears those, then run tmbox setup again."
         exit 1 ;;
+    80) # tmutil uses 80 for two different failures, and only its own
+        # message tells them apart. Missing Full Disk Access was reported here
+        # as a wrong password once, and sent the user to sync a password that
+        # had never been the problem (#6).
+        if [[ "$SETUP_SETDEST_OUT" == *"Full Disk Access"* ]]; then
+          ui_spin_stop bad "tmutil needs Full Disk Access"
+          fda_explain
+        else
+          ui_spin_stop bad "the appliance rejected the share password"
+          ui_say "tmutil's own message is in ${TMBOX_LOG_FILE}. tmbox doctor checks the share and its credentials."
+        fi
+        exit 1 ;;
     *)  ui_spin_stop bad "tmutil refused the destination (${rc})"
-        ui_say "Its own message is in ${TMBOX_LOG_FILE}. A wrong share password reports authentication error 80."
+        ui_say "tmutil's own message is in ${TMBOX_LOG_FILE}."
         exit 1 ;;
   esac
 
@@ -936,6 +960,11 @@ setup_step8_destination() {
   ui_kv "Destination" "$id"
 
   setup_report_encryption "$share"
+
+  # The one thing in tmbox that needs it is done. Said here because users
+  # reasonably do not want a terminal holding Full Disk Access for good (#6).
+  ui_blank
+  ui_say "Full Disk Access was needed for that step only. You can switch it off for $(fda_app_name) now. tmbox status and doctor still run without it, but say so where a check needs it - reading the backup history, for one."
 
   if (( ${TMBOX_DESTINATION_REPLACED:-0} )); then
     ui_blank
@@ -985,9 +1014,13 @@ setup_run_setdestination() {
   out="$(print -rn -- "$pw" | priv_run_quiet /usr/bin/expect -f "${stage}/setdest.exp" "$url" 2>&1)" || rc=$?
   rm -rf -- "$stage"
 
-  # tmutil echoes its prompt into the transcript; the password itself was
-  # registered as a secret when it was stored, so log_redact removes it.
-  log_debug "setdestination output: ${out//$'\n'/$'\036'}"
+  # Kept for the caller, which needs the text to tell tmutil's two meanings of
+  # 80 apart. Logged at info, not debug: the failure message points the user
+  # at the transcript, and at the default level a debug line is never written
+  # (#6). tmutil echoes its prompt; the password itself was registered as a
+  # secret when it was stored, so log_redact removes it.
+  typeset -g SETUP_SETDEST_OUT="$out"
+  log_info "setdestination exit ${rc}, output: ${out//$'\n'/$'\036'}"
   return $rc
 }
 

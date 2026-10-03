@@ -169,13 +169,18 @@ tm_last_snapshot() {
 # tm_latest_backup_for <destination-id> - tm_last_snapshot, or the old answer
 #
 # Falls back to `tmutil latestbackup` only when the preferences are unreadable,
-# and only then, because that answer may be about another destination.
+# and only then, because that answer may be about another destination. Both
+# need Full Disk Access, so when neither answers the result is 2, "cannot
+# tell", and never 1, "no backup" - a user who switched FDA off after setup, as
+# setup tells them they may, must not be told their backups do not exist.
 tm_latest_backup_for() {
   local out rc=0
   out="$(tm_last_snapshot "$1")" || rc=$?
   case $rc in
     0) print -rn -- "$out" ;;
-    2) tm_latest_backup ;;
+    2) tm_latest_backup && return 0
+       fda_granted && return 1
+       return 2 ;;
     *) return 1 ;;
   esac
 }
@@ -196,6 +201,50 @@ tm_percent() {
 
 tm_phase() {
   tm_status_plist | sed -n 's/.*BackupPhase"\{0,1\} *= *"\{0,1\}\([A-Za-z]*\).*/\1/p' | head -1
+}
+
+# --- Full Disk Access -------------------------------------------------------
+#
+# `tmutil setdestination` needs root *and* Full Disk Access, and without the
+# second it exits 80 - the same code as a rejected share password. The grant is
+# a TCC decision with no command-line equivalent, so tmbox can only detect it
+# and say exactly where to click (#6).
+#
+# The probe is a one-byte read of TCC's own database, which TCC protects with
+# FDA even from root. Measured on macOS 26.6 with SIP on: denied in a terminal
+# without FDA, as root too, and in a root LaunchDaemon; readable from a terminal
+# that has it. `tmutil destinationinfo`, which the first version relied on,
+# works without FDA and proved nothing.
+#
+# Not testable in the stock Tart guests: they ship with SIP disabled, and then
+# TCC grants everything. That is why 0.1.x shipped without this.
+typeset -g TMBOX_FDA_PROBE="${TMBOX_FDA_PROBE:-/Library/Application Support/com.apple.TCC/TCC.db}"
+
+# fda_granted - 0 granted, 1 denied, 2 cannot tell
+fda_granted() {
+  [[ -e "$TMBOX_FDA_PROBE" ]] || return 2
+  head -c 1 -- "$TMBOX_FDA_PROBE" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# fda_app_name - the app the user has to find in the Full Disk Access list
+#
+# TCC grants FDA to the app the terminal session belongs to, so that is the one
+# to name. macOS sets __CFBundleIdentifier for processes started from an app;
+# TERM_PROGRAM is not set by every terminal - kitty, for one, leaves it empty.
+fda_app_name() {
+  case "${__CFBundleIdentifier:-}" in
+    com.apple.Terminal)       print -rn -- "Terminal" ;;
+    com.googlecode.iterm2)    print -rn -- "iTerm" ;;
+    net.kovidgoyal.kitty)     print -rn -- "kitty" ;;
+    com.mitchellh.ghostty)    print -rn -- "Ghostty" ;;
+    dev.warp.Warp-Stable)     print -rn -- "Warp" ;;
+    org.alacritty)            print -rn -- "Alacritty" ;;
+    com.github.wez.wezterm)   print -rn -- "WezTerm" ;;
+    com.microsoft.VSCode)     print -rn -- "Visual Studio Code" ;;
+    "")                       print -rn -- "your terminal app" ;;
+    *)                        print -rn -- "the app this terminal runs in (${__CFBundleIdentifier})" ;;
+  esac
 }
 
 # --- SMB --------------------------------------------------------------------
