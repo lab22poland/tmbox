@@ -9,6 +9,7 @@ All notable changes to tmbox are recorded here. The format follows
 ### Fixed
 
 - On a Mac that also backs up to another destination, the first-backup step no longer shows that destination's backup as the appliance's, and starts the first backup with `--destination`. `tmbox status` and `tmbox doctor` report backups to the appliance only ([#7](https://github.com/lab22poland/tmbox/issues/7)).
+- Running the test suite no longer writes to a real installation. The libraries computed their paths from `$HOME` when sourced, so the credential tests overwrote `~/.config/tmbox/secrets/`, including the ZFS passphrase. The runners now move every path into a scratch directory, and the suites refuse to run against the real one ([#11](https://github.com/lab22poland/tmbox/issues/11)).
 
 ## [0.1.1] - 2026-10-03
 
