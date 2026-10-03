@@ -82,15 +82,25 @@ cmd_setup() {
   # nothing is billing - and once the destination is set, it is not needed.
   if [[ -z "$(state_get destination_id)" ]] && ! preflight_time_machine_ready; then
     ui_blank
-    if state_has server_id; then
-      ui_say "Nothing was changed; the appliance this Mac already has is untouched."
+    if setup_existing; then
+      ui_say "Nothing was changed; what this Mac already has in Hetzner is untouched, and still billed."
     else
       ui_say "Nothing has been created, and nothing is being billed."
     fi
     exit 1
   fi
 
-  setup_step1_welcome
+  # A Mac that has been here before continues what it started (#4). Replaying
+  # the new-install flow over it re-asked questions whose answers can no longer
+  # change anything - and one that can still break things: the share is named
+  # after the Mac, so a different name pointed Time Machine at a share that
+  # does not exist.
+  if setup_existing; then
+    SETUP_RESUMING=1
+    setup_resume_intro
+  else
+    setup_step1_welcome
+  fi
   setup_step2_account
   setup_step3_token
   setup_step4_confirm
@@ -105,6 +115,61 @@ cmd_setup() {
   return 0
 }
 
+# --- resuming ---------------------------------------------------------------
+#
+# Every step already skips what the state file says it did, which is what makes
+# a re-run safe. What it did not make it was honest: a resumed run walked
+# through the questions and the cost screen of a new install, said "nothing
+# exists" over resources that were billing, and overwrote the original answers
+# with new ones (#4). Resuming is now its own path: say what exists, ask once
+# whether to go on, and never ask again what was decided the first time.
+
+typeset -gi SETUP_RESUMING=0
+
+# setup_existing - 0 when this Mac already has an appliance, or part of one
+#
+# Anything billable counts, and so does the firewall: a run interrupted between
+# creating those and the server still has to continue rather than start over,
+# or it would create a second set.
+setup_existing() {
+  state_has box_id || state_has server_id || state_has primary_ip_id || state_has firewall_id
+}
+
+setup_resume_intro() {
+  ui_banner "tmbox ${TMBOX_VERSION}" "Continuing the setup this Mac started"
+
+  ui_say "This Mac already has a tmbox appliance, or the start of one, in Hetzner. Setup continues it rather than starting again: nothing is created twice, and the answers given the first time stand."
+  ui_blank
+  setup_resume_summary
+  ui_blank
+
+  ui_confirm RESUME "Continue with this appliance?" "y" || {
+    ui_blank
+    ui_say "Stopped. Nothing was changed - and what already exists in Hetzner is still there, and still billed."
+    ui_say "tmbox status shows it. tmbox destroy removes it."
+    exit 0
+  }
+
+  # A run interrupted before step 1 recorded its answers has resources but no
+  # name or size. Rare, and the only case in which a resumed run asks.
+  if [[ -z "$(state_get mac_name)" || -z "$(state_get capacity)" ]]; then
+    setup_ask_capacity_and_name
+  fi
+}
+
+# setup_resume_summary - what exists, and which steps are done
+setup_resume_summary() {
+  local done="${C_OK}${G_OK}${C_RESET}" todo="${C_MUTED}not yet${C_RESET}"
+  ui_kv "This Mac"     "$(state_get mac_name) (share tm-$(state_get mac_name))"
+  ui_kv "Size"         "$(state_get capacity), Storage Box $(state_get box_type)"
+  ui_kv "Location"     "$(state_get region)"
+  ui_kv "Storage Box"  "$(state_has box_id && print -rn -- "$done $(state_get box_id)" || print -rn -- "$todo")"
+  ui_kv "Server"       "$(state_has server_id && print -rn -- "$done $(state_get server_ip)" || print -rn -- "$todo")"
+  ui_kv "Built"        "$([[ "$(state_get bootstrapped)" == yes ]] && print -rn -- "$done" || print -rn -- "$todo")"
+  ui_kv "Tunnel"       "$([[ -f "$TMBOX_TUNNEL_PLIST" ]] && print -rn -- "$done" || print -rn -- "$todo")"
+  ui_kv "Time Machine" "$(state_has destination_id && print -rn -- "$done" || print -rn -- "$todo")"
+}
+
 # --- 1. welcome and capacity ------------------------------------------------
 
 setup_step1_welcome() {
@@ -116,7 +181,10 @@ setup_step1_welcome() {
   ui_blank
 
   ui_step 1 $SETUP_STEPS "How much space"
+  setup_ask_capacity_and_name
+}
 
+setup_ask_capacity_and_name() {
   local capacity
   capacity="$(ui_menu CAPACITY "How much do you want to back up?" \
     "1TB"  "1 TB"  "One Mac with a modest disk." \
@@ -266,10 +334,22 @@ setup_validate_token() {
 setup_step4_confirm() {
   ui_step 4 $SETUP_STEPS "What this will cost"
 
+  # Nothing left to buy: no screen asking whether to buy it (#4).
+  if (( SETUP_RESUMING )) && state_has box_id && state_has primary_ip_id && state_has server_id; then
+    local eur; eur="$(state_get monthly_eur)"
+    ui_ok "Everything is already created${eur:+, about EUR ${eur} / month, net}."
+    return 0
+  fi
+
   local capacity; capacity="$(state_get capacity)"
   local -i want_bytes; want_bytes="$(setup_capacity_bytes "$capacity")"
 
-  local region; region="$(setup_choose_region)"
+  # A resumed run keeps the location it started in: the Storage Box and the
+  # server have to share one, and whichever exists already decided it.
+  local region; region="$(state_get region)"
+  if (( ! SETUP_RESUMING )) || [[ -z "$region" ]]; then
+    region="$(setup_choose_region)"
+  fi
 
   # Prices come from the API, never from a constant. Hetzner changed cloud
   # prices in June 2026, and a wizard quoting a stale figure on the very screen
@@ -297,7 +377,11 @@ setup_step4_confirm() {
   local -F total=$(( srv_price + ip_price + box_price ))
 
   ui_blank
-  ui_say "tmbox will create these, in your own Hetzner project:"
+  if (( SETUP_RESUMING )); then
+    ui_say "Part of this already exists from the earlier run, and is billed. tmbox creates the rest, in your own Hetzner project:"
+  else
+    ui_say "tmbox will create these, in your own Hetzner project:"
+  fi
   ui_blank
   ui_kv "Server"      "CAX11 - 2 vCPU Ampere, 4 GB, arm64, Debian 13"
   ui_kv "Location"    "$region"
@@ -322,6 +406,16 @@ setup_step4_confirm() {
   if (( TMBOX_DRY_RUN )); then
     ui_warn "Dry run - stopping here. Nothing has been created."
     exit 0
+  fi
+
+  if (( SETUP_RESUMING )); then
+    ui_confirm PROCEED "Create the rest now?" "n" || {
+      ui_blank
+      ui_say "Stopped. Nothing more was created - what the earlier run created still exists, and is billed."
+      ui_say "tmbox destroy removes it."
+      exit 0
+    }
+    return 0
   fi
 
   ui_say "This is the last point at which nothing exists. After it, tmbox starts creating resources and your account starts being billed."
@@ -412,19 +506,34 @@ setup_provision_keys() {
 
 setup_provision_box() {
   local base="$1" box_type="$2" region="$3" stamp="$4"
+  local id
+
   if state_has box_id; then
+    id="$(state_get box_id)"
     ui_ok "Storage Box already created."
-    return 0
+  else
+    ui_spin_start "Creating the Storage Box"
+    local pw; pw="$(hb_password)"
+    id="$(setup_require "$(hb_create "${base}-${stamp}" "$box_type" "$region" "$pw")" "create the Storage Box")"
+    # Recorded the moment it exists, before the wait. The wait is minutes, and
+    # a run stopped during it used to leave a box that was billing and that no
+    # later run knew about - so the next one bought a second (#4).
+    state_set box_id "$id"
+    kc_set storagebox-password "$pw" || ui_die "Could not save the Storage Box password."
+    ui_spin_stop ok "Storage Box ordered"
   fi
 
-  ui_spin_start "Creating the Storage Box"
-  local pw; pw="$(hb_password)"
-  local id; id="$(setup_require "$(hb_create "${base}-${stamp}" "$box_type" "$region" "$pw")" "create the Storage Box")"
-  hb_wait_active "$id"
+  # Each remaining part is checked on its own, so a run stopped between any two
+  # of them continues from the one it had not reached. Skipping the whole
+  # function on box_id alone left a resumed appliance with no subaccount.
+  if ! state_has box_server; then
+    ui_spin_start "Waiting for the Storage Box to become active"
+    hb_wait_active "$id"
+    state_set box_server "$(hb_server "$id")"
+    ui_spin_stop ok "Storage Box ready"
+  fi
 
-  kc_set storagebox-password "$pw" || ui_die "Could not save the Storage Box password."
-  state_set box_id "$id" box_server "$(hb_server "$id")"
-  ui_spin_stop ok "Storage Box ready"
+  state_has box_subaccount && return 0
 
   # The appliance mounts a subaccount, not the owner. Its home directory is all
   # it can see, so the credentials that have to sit in a file on the appliance
@@ -442,6 +551,7 @@ setup_provision_fw() {
   local base="$1"
   if state_has firewall_id; then
     ui_ok "Firewall already created."
+    setup_follow_address
     return 0
   fi
 
@@ -458,6 +568,28 @@ setup_provision_fw() {
   local id; id="$(setup_require "$(hc_firewall_create "$base" "${ip}/32")" "create the firewall")"
   state_set firewall_id "$id" admin_cidr "${ip}/32"
   ui_spin_stop ok "Firewall created - SSH from ${ip} only, SMB not exposed at all"
+}
+
+# setup_follow_address - re-pin the firewall if this connection's address moved
+#
+# The firewall admits one address, and a home connection's changes. A resumed
+# run that did not check went on to time out on every ssh step that followed,
+# with nothing saying why (#4); doctor --fix could repair it, setup could not.
+# Same repair, made here before the first connection that needs it.
+setup_follow_address() {
+  local recorded current
+  recorded="$(state_get admin_cidr)"
+  if ! current="$(public_ipv4)"; then
+    ui_warn "Could not check this connection's public address."
+    ui_say "If it has changed since the firewall was created, the appliance will not answer. tmbox doctor --fix re-pins it."
+    return 0
+  fi
+  [[ "$recorded" == "${current}/32" ]] && return 0
+
+  ui_spin_start "This connection's address changed to ${current}; updating the firewall"
+  hc_firewall_set_admin_cidr "$(state_get firewall_id)" "${current}/32"
+  state_set admin_cidr "${current}/32"
+  ui_spin_stop ok "The firewall now allows ${current}"
 }
 
 setup_provision_ip() {
@@ -579,6 +711,7 @@ setup_step6_bootstrap() {
 
   if [[ "$(state_get bootstrapped)" == "yes" ]]; then
     ui_ok "The appliance is already built."
+    setup_check_share_password "$ip"
     return 0
   fi
 
@@ -821,6 +954,29 @@ setup_collect_share_password() {
   log_secret "$smb_pw"
   kc_set samba-password "$smb_pw" || ui_die "Could not save the share password."
   ui_ok "Share credentials saved."
+}
+
+# setup_check_share_password <ip>
+#
+# The appliance's copy is the one Samba uses, so it is the one that is right.
+# A run found the Mac holding a different one - cause never established, but
+# one path is setup_collect_share_password keeping the stored value when the
+# fetch fails - and step 8 then failed with tmutil's authentication error (#4).
+# Compared by fingerprint, so neither copy is printed or logged, and replaced
+# when they differ. step 8 sees the new fingerprint and replaces a destination
+# that was set with the old one.
+setup_check_share_password() {
+  local ip="$1" remote_fp
+  remote_fp="$(ssh_run "$ip" "tr -d '\\n' < /etc/tmbox/smb_password | sha256sum | cut -c1-16" 2>/dev/null)" || remote_fp=""
+  if [[ -z "$remote_fp" ]]; then
+    ui_warn "Could not read the share password's fingerprint from the appliance; tmbox doctor checks it."
+    return 0
+  fi
+  [[ "$remote_fp" == "$(setup_pw_fingerprint)" ]] && return 0
+
+  log_warn "share password on this Mac differs from the appliance's; fetching it again"
+  ui_warn "The share password on this Mac did not match the appliance's."
+  setup_collect_share_password "$ip"
 }
 
 # --- 8. the Time Machine destination ----------------------------------------
