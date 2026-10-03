@@ -43,6 +43,16 @@ typeset -g SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS:-$TMBOX_STATE_DIR/known_hosts}"
 # ssh_key_path <admin|tunnel>
 ssh_key_path() { print -rn -- "${SSH_KEY_DIR}/id_ed25519_${1}" }
 
+# ssh_hint <host> [command] - an ssh line for the user to copy
+#
+# It names tmbox's own known_hosts, because that is where the host key is
+# pinned. Without it a copied line fails with "Host key verification failed",
+# which reads as a changed or spoofed server rather than a missing option (#5).
+# Both paths are quoted: they are under $HOME, which is the user's to name.
+ssh_hint() {
+  print -rn -- "ssh -i \"$(ssh_key_path admin)\" -o UserKnownHostsFile=\"${SSH_KNOWN_HOSTS}\" root@${1}${2:+ $2}"
+}
+
 # ssh_delete_keys - remove every keypair tmbox generated on this Mac.
 #
 # Called by `destroy` once the appliance is gone. A key to a server that no
