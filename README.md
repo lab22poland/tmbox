@@ -110,9 +110,14 @@ Mac, the Hetzner account, an API token, a confirmation screen with the monthly
 cost, provisioning, the appliance bootstrap, the tunnel, the Time Machine
 destination, and the first backup. Nothing is created in Hetzner before you
 confirm on the cost screen, and the prices shown there are read live from
-Hetzner's API. Every step records what it did, so if setup is interrupted,
-running it again continues where it stopped rather than creating a second
-appliance. Needs a terminal unless run with `--non-interactive`.
+Hetzner's API. Every step records what it did, the moment it does it, so setup
+can be stopped at any point and run again. On a Mac that already has an
+appliance, or part of one, it shows what exists and asks once whether to
+continue; it does not ask again for the size, the name or the location, and
+creates only what is missing. Before it connects to the appliance it re-pins
+the firewall if this connection's public address has changed, and it re-reads
+the share password from the appliance if the copy on this Mac differs. Needs a
+terminal unless run with `--non-interactive`.
 
 **`tmbox status`** answers four questions - is a backup running, when was the
 last one, is the tunnel up, how full is the appliance - and shows the monthly
