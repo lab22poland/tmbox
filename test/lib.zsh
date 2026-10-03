@@ -7,6 +7,24 @@
 # and a test framework that has to be installed first is a test framework that
 # does not run on the machine where it matters.
 
+# Refuse to run against a real installation. The runner moves every path into a
+# scratch directory; a suite started some other way, or a path the runner does
+# not know about, must not get as far as writing to ~/.config/tmbox (#11).
+() {
+  # ~user, not $HOME: the runner moves HOME, and the directory to protect is
+  # the one in the password database. Assigned, because zsh expands ~$USER in
+  # an assignment and not inside ${...}.
+  local home=~$USER
+  local real="${home:A}/.config/tmbox"
+  local p
+  for p in "${TMBOX_STATE_DIR:-}" "${TMBOX_SECRET_DIR:-}" "${SSH_KEY_DIR:-}" "${HOME:-}/.config/tmbox"; do
+    if [[ -z "$p" || "${p:A}" == "${real:A}"* ]]; then
+      print -u2 -r -- "test/lib.zsh: refusing to run - '${p:-an unset path}' is the real tmbox directory. Use test/run-tests.zsh."
+      exit 70
+    fi
+  done
+}
+
 typeset -g TESTS_RUN=0
 typeset -g TESTS_FAILED=0
 typeset -g CURRENT_TEST=""
