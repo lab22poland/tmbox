@@ -144,3 +144,32 @@ test_the_exit_status_distinguishes_broken_from_merely_untidy() {
   _reset; DOCTOR_FAILED=1; DOCTOR_WARNED=3
   assert_status 1 doctor_summary "a failure outranks any number of warnings"
 }
+
+# --- repair order (#5) ------------------------------------------------------
+
+test_the_firewall_is_checked_before_the_tunnel() {
+  # The tunnel is an ssh connection, so with --fix a changed address has to be
+  # re-pinned before a dead tunnel is restarted. The other way round the
+  # restart timed out against the old rules and was reported as a failure.
+  local order
+  order="$(
+    doctor_check_reachability() { print -rn -- "reach " }
+    doctor_check_mac()          { print -rn -- "mac " }
+    doctor_check_appliance()    { print -rn -- "appliance " }
+    doctor_check_timemachine()  { print -rn -- "tm" }
+    doctor_run_checks
+  )"
+  assert_eq "reach mac appliance tm" "$order"
+}
+
+# --- copyable ssh lines (#5) ------------------------------------------------
+
+test_the_ssh_hint_names_tmboxs_own_known_hosts() {
+  # The host key is pinned in tmbox's file, not ~/.ssh/known_hosts. A hint
+  # without it fails with "Host key verification failed" when copied.
+  local hint; hint="$(ssh_hint 203.0.113.10 true)"
+  assert_contains "$hint" "-o UserKnownHostsFile=\"${SSH_KNOWN_HOSTS}\""
+  assert_contains "$hint" "-i \"$(ssh_key_path admin)\""
+  assert_matches  "$hint" ' root@203\.0\.113\.10 true$'
+  assert_matches  "$(ssh_hint 203.0.113.10)" ' root@203\.0\.113\.10$' "no command, no trailing space"
+}

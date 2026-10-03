@@ -8,6 +8,8 @@ All notable changes to tmbox are recorded here. The format follows
 
 ### Fixed
 
+- `tmbox doctor --fix` re-pins a changed address before it restarts the tunnel, and waits for Hetzner to apply the new firewall rules, instead of reporting a tunnel failure it then fixes ([#5](https://github.com/lab22poland/tmbox/issues/5)).
+- The ssh commands tmbox prints for copying name its own `known_hosts`, so they no longer fail with "Host key verification failed" ([#5](https://github.com/lab22poland/tmbox/issues/5)).
 - Running the test suite no longer writes to a real installation. The libraries computed their paths from `$HOME` when sourced, so the credential tests overwrote `~/.config/tmbox/secrets/`, including the ZFS passphrase. The runners now move every path into a scratch directory, and the suites refuse to run against the real one ([#11](https://github.com/lab22poland/tmbox/issues/11)).
 
 ## [0.1.1] - 2026-10-03
