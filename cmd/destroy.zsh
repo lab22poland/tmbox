@@ -53,6 +53,7 @@ cmd_destroy() {
   if [[ -f "$TMBOX_TUNNEL_PLIST" ]]; then
     tunnel_uninstall || ui_warn "The tunnel could not be removed; see tmbox tunnel status."
   fi
+  destroy_tm_destination
 
   destroy_quiesce_appliance "$server_ip"
   destroy_cloud_resources
@@ -61,6 +62,14 @@ cmd_destroy() {
 
   ui_blank
   destroy_audit
+
+  # Measured on 2026-09-19 and again on 2026-10-01: a new destination at the
+  # same 127.0.0.2 address can fail every backup with an authentication error
+  # until the Mac restarts. Said here, where it can still be planned for.
+  if (( DESTROY_TM_REMOVED )); then
+    ui_blank
+    ui_say "If you set tmbox up again on this Mac and the first backup fails with an authentication error, restart the Mac: macOS can hold on to the old destination's connection state until then."
+  fi
 }
 
 # --- what is about to happen ------------------------------------------------
@@ -73,6 +82,7 @@ destroy_show_what_goes() {
   v="$(state_get primary_ip_id)"; [[ -n "$v" ]] && ui_item "IPv4 address $(state_get server_ip)"
   v="$(state_get firewall_id)";   [[ -n "$v" ]] && ui_item "Firewall ${v}"
   v="$(state_get ssh_key_id)";    [[ -n "$v" ]] && ui_item "The SSH key registered with Hetzner"
+  ui_item "The tunnel and the Time Machine destination on this Mac"
   ui_blank
 
   local box_id; box_id="$(state_get box_id)"
@@ -89,6 +99,40 @@ destroy_show_what_goes() {
       ui_say "To remove it too, run: tmbox destroy --delete-storage-box"
       ui_blank
     fi
+  fi
+}
+
+# --- the Time Machine destination -------------------------------------------
+#
+# Added by setup's step 8 and, until #13, never removed: after a destroy Time
+# Machine kept trying a share that no longer existed, and a later setup on the
+# same Mac re-added the same URL. Removed whether or not the Storage Box is
+# kept - removing a destination deletes nothing on it.
+
+typeset -gi DESTROY_TM_REMOVED=0
+
+destroy_tm_destination() {
+  local id; id="$(state_get destination_id)"
+  [[ -n "$id" ]] || id="$(tm_destination_id "tm-$(state_get mac_name)")" || id=""
+  [[ -n "$id" ]] || return 0
+  # Only what Time Machine still has. destinationinfo needs no Full Disk Access.
+  tm_destinations_plist 2>/dev/null | grep -q -- "$id" || return 0
+
+  # removedestination does need it, and without it fails with the same exit
+  # code as everything else. Not a reason to stop a teardown: say what to run.
+  if [[ "$(fda_granted; print -rn -- $?)" == 1 ]]; then
+    ui_warn "The Time Machine destination was not removed: that needs Full Disk Access for $(fda_app_name)."
+    ui_say "Remove it later with:  sudo tmutil removedestination ${id}"
+    return 0
+  fi
+
+  priv_prime || { ui_warn "The Time Machine destination was not removed."; ui_say "Remove it with:  sudo tmutil removedestination ${id}"; return 0 }
+  if priv_run_quiet /usr/bin/tmutil removedestination "$id" >/dev/null 2>&1; then
+    DESTROY_TM_REMOVED=1
+    ui_ok "Time Machine destination removed"
+  else
+    ui_warn "Time Machine refused to remove the destination."
+    ui_say "Remove it with:  sudo tmutil removedestination ${id}"
   fi
 }
 
