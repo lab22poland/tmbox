@@ -51,12 +51,24 @@ cmd_doctor() {
     return 3
   fi
 
-  doctor_check_mac
-  doctor_check_reachability
-  doctor_check_appliance
-  doctor_check_timemachine
+  doctor_run_checks
 
   doctor_summary
+}
+
+# doctor_run_checks
+#
+# The order is a dependency order, not a reading order. The tunnel is an ssh
+# connection, so it can only come up once the firewall admits this Mac: with
+# --fix, re-pinning a changed address has to happen before the tunnel is
+# restarted. The other way round, the restart timed out against the old rules,
+# was reported as a failure, and the re-pin that followed fixed it a moment too
+# late to show (#5).
+doctor_run_checks() {
+  doctor_check_reachability
+  doctor_check_mac
+  doctor_check_appliance
+  doctor_check_timemachine
 }
 
 # --- the check primitives ---------------------------------------------------
@@ -72,6 +84,7 @@ doc_fail() { ui_bad  "$1"; [[ -n "${2:-}" ]] && ui_dim "    $2"; (( DOCTOR_FAILE
 # --- 1. this Mac ------------------------------------------------------------
 
 doctor_check_mac() {
+  ui_blank
   ui_rule "This Mac"
   ui_blank
 
@@ -156,7 +169,6 @@ doctor_check_tunnel_stability() {
 # transport decision its keep.
 
 doctor_check_reachability() {
-  ui_blank
   ui_rule "Reaching the appliance"
   ui_blank
 

@@ -540,11 +540,9 @@ setup_show_state() {
   ui_kv "Firewall"    "$(state_get firewall_id) - SSH from $(state_get admin_cidr)"
   ui_kv "Cost"        "about EUR $(state_get monthly_eur) / month, net"
   ui_blank
-  # The key path is quoted because this line is meant to be copied into a
-  # terminal, and the path is not ours to predict: XDG_CONFIG_HOME and $HOME
-  # both belong to the user. A space in either makes an unquoted -i argument
-  # run as two and fail with "No such file or directory".
-  ui_say "Reach it with:  ssh -i \"$(ssh_key_path admin)\" root@$(state_get server_ip)"
+  # Meant to be copied into a terminal - see ssh_hint for why it carries the
+  # known_hosts option and quotes both paths.
+  ui_say "Reach it with:  $(ssh_hint "$(state_get server_ip)")"
   ui_say "Remove it with: tmbox destroy"
   ui_blank
 }
