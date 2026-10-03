@@ -4,15 +4,15 @@ A private Time Machine destination on Hetzner, set up by one shell script from a
 Mac that has nothing installed.
 
 ```zsh
-curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.0/tmbox.zsh
-curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.0/tmbox.zsh.sha256
+curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.1/tmbox.zsh
+curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.1/tmbox.zsh.sha256
 shasum -a 256 -c tmbox.zsh.sha256    # must print "tmbox.zsh: OK"
 less tmbox.zsh && zsh tmbox.zsh setup
 ```
 
 The digest is published twice: as the `tmbox.zsh.sha256` asset on the release,
 and in the repository itself at
-[`dist/tmbox.zsh.sha256`](dist/tmbox.zsh.sha256) under the `v0.1.0` tag. The
+[`dist/tmbox.zsh.sha256`](dist/tmbox.zsh.sha256) under the `v0.1.1` tag. The
 file is the line `shasum -a 256` itself prints, so `shasum -c` checks it
 directly when both files are in the same directory. The build is reproducible,
 so `make dist` on a checkout of the tag produces the same digest.
@@ -20,7 +20,7 @@ so `make dist` on a checkout of the tag produces the same digest.
 The one-liner form works too, and is offered second on purpose:
 
 ```zsh
-curl -fsSL https://github.com/lab22poland/tmbox/releases/download/v0.1.0/tmbox.zsh | zsh -s -- setup
+curl -fsSL https://github.com/lab22poland/tmbox/releases/download/v0.1.1/tmbox.zsh | zsh -s -- setup
 ```
 
 At the end, Time Machine is backing up to an appliance in your own Hetzner
@@ -29,7 +29,9 @@ costing about **€17.39/month at 2 TB**. You need a Mac, an administrator
 password and a payment card. You do not need a Hetzner account yet, a package
 manager, or any idea what a sparsebundle is.
 
-> **Status: 0.1.0 is the first release.** It builds the appliance, connects
+> **Status: 0.1.1 is the current release.** It is 0.1.0, the first release,
+> with one display bug fixed; everything said here about 0.1.0 applies to it
+> unchanged. It builds the appliance, connects
 > your Mac to it, points Time Machine at it, starts the first backup, and gives
 > you commands to check, repair, unlock and remove it. It has been run end to
 > end on a stock macOS 26 install with nothing added. It does **not** yet unlock
