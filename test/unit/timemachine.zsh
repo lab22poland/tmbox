@@ -170,3 +170,49 @@ test_unreadable_preferences_are_not_reported_as_no_backup() {
   tm_last_snapshot "$TM_OURS" >/dev/null || rc=$?
   assert_eq 2 $rc "unreadable is its own answer, so callers can fall back"
 }
+
+# --- Full Disk Access (#6) --------------------------------------------------
+
+test_fda_probe_reads_the_tcc_database_and_nothing_else() {
+  # A readable probe is "granted", an unreadable one "denied", a missing one
+  # "cannot tell" - which must not block setup on a Mac laid out differently.
+  local probe; probe="$(mktemp "${TMPDIR:-/tmp}/tmbox-fda.XXXXXX")"
+  print -r -- "SQLite format 3" > "$probe"
+  local rc
+  rc=0; TMBOX_FDA_PROBE="$probe" fda_granted || rc=$?
+  assert_eq 0 $rc "readable"
+  chmod 000 "$probe"
+  rc=0; TMBOX_FDA_PROBE="$probe" fda_granted || rc=$?
+  assert_eq 1 $rc "unreadable"
+  rm -f -- "$probe"
+  rc=0; TMBOX_FDA_PROBE="$probe" fda_granted || rc=$?
+  assert_eq 2 $rc "missing"
+}
+
+test_fda_names_the_app_the_user_has_to_find() {
+  assert_eq "kitty"    "$(__CFBundleIdentifier=net.kovidgoyal.kitty fda_app_name)" "kitty sets no TERM_PROGRAM"
+  assert_eq "Terminal" "$(__CFBundleIdentifier=com.apple.Terminal fda_app_name)"
+  assert_contains "$(__CFBundleIdentifier=org.example.Term fda_app_name)" "org.example.Term" "an unknown app is named by its id"
+  assert_eq "your terminal app" "$(__CFBundleIdentifier= fda_app_name)"
+}
+
+test_history_without_fda_is_unknown_not_empty() {
+  # After setup the user may switch FDA off, as setup says they can. Then the
+  # history cannot be read - and "none yet" would tell them their backups do
+  # not exist.
+  local rc
+  rc="$(
+    TMBOX_TM_PREFS="/nonexistent/prefs.plist"
+    tm_latest_backup() { return 1 }
+    fda_granted() { return 1 }
+    tm_latest_backup_for "$TM_OURS" >/dev/null; print -rn -- $?
+  )"
+  assert_eq 2 "$rc" "no FDA: cannot tell"
+  rc="$(
+    TMBOX_TM_PREFS="/nonexistent/prefs.plist"
+    tm_latest_backup() { return 1 }
+    fda_granted() { return 0 }
+    tm_latest_backup_for "$TM_OURS" >/dev/null; print -rn -- $?
+  )"
+  assert_eq 1 "$rc" "FDA granted and still nothing: there is no backup"
+}

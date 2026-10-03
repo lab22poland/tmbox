@@ -128,23 +128,41 @@ preflight_network() {
   return 0
 }
 
+# --- Full Disk Access -------------------------------------------------------
+#
+# Detected by fda_granted in lib/macos.zsh, which says why the probe is what it
+# is. What is here is what the user is told.
+
+# fda_explain - what to do, including the step everyone misses
+fda_explain() {
+  local app; app="$(fda_app_name)"
+  ui_say "Time Machine only accepts a new destination from a program with Full Disk Access, and ${app} does not have it."
+  ui_item "System Settings → Privacy & Security → Full Disk Access"
+  ui_item "switch on ${app} (use + to add it if it is not listed)"
+  ui_item "quit ${app} completely (⌘Q) and open it again - a running app does not pick up the change"
+  ui_item "run tmbox setup again; it continues where it stopped"
+  ui_say "It is needed for one command in setup. Once setup has finished you can switch it off again."
+}
+
 # preflight_time_machine_ready
 #
-# Run before the destination is set rather than at startup: it is only relevant
-# at step 8, and failing at step 1 for it would be needlessly discouraging.
+# Called at the start of setup, before anything is created, and again right
+# before the destination is set. Stopping at step 1 costs the user a minute;
+# finding out at step 8 cost them a server already billing and a misleading
+# "wrong password" (#6).
 preflight_time_machine_ready() {
-  local -i problems=0
-
-  # tmutil setdestination needs root *and* Full Disk Access. The FDA grant is a
-  # TCC decision with no command-line equivalent, so it cannot be scripted and
-  # the user has to be told exactly where to click.
-  if ! tmutil destinationinfo >/dev/null 2>&1; then
-    ui_warn "tmutil cannot read the Time Machine configuration."
-    ui_say "Give your terminal Full Disk Access in System Settings → Privacy & Security → Full Disk Access, then run tmbox again. There is no command-line way to grant it."
-    (( problems++ ))
-  fi
-
-  return $(( problems > 0 ))
+  local -i rc=0
+  fda_granted || rc=$?
+  case $rc in
+    0) return 0 ;;
+    2) log_warn "cannot tell whether Full Disk Access is granted: $TMBOX_FDA_PROBE is missing"
+       return 0 ;;
+  esac
+  log_warn "Full Disk Access is not granted to ${__CFBundleIdentifier:-the terminal}"
+  local app; app="$(fda_app_name)"
+  ui_warn "${(U)app[1]}${app[2,-1]} does not have Full Disk Access."
+  fda_explain
+  return 1
 }
 
 # preflight_report - what the environment is, for the transcript

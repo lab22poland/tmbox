@@ -85,10 +85,15 @@ tmbox does not install itself as a command. Keep `tmbox.zsh` and run it with
   or stores it.
 - A payment card. Hetzner account creation is the one step nobody can automate
   for you; the script opens the page and waits.
-- If `tmutil` cannot read the Time Machine configuration, setup stops at step 8
-  and asks you to give your terminal Full Disk Access in System Settings
-  → Privacy & Security. There is no command-line way to grant it; run setup
-  again afterwards and it continues from that step.
+- Full Disk Access for the terminal app you run setup in (Terminal, iTerm,
+  kitty, …), in System Settings → Privacy & Security → Full Disk Access. macOS
+  accepts a new Time Machine destination only from a program that has it, and
+  there is no command-line way to grant it. Setup checks before it creates
+  anything and stops if it is missing. Quit and reopen the terminal app after
+  switching it on; a running app does not pick up the change. It is needed for
+  that one step: once setup has finished you can switch it off again, and
+  `tmbox status` then shows the backup history as not readable rather than
+  empty.
 
 ## Usage
 

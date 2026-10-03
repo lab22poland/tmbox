@@ -53,9 +53,12 @@ status_backup() {
     ui_item "No backup is running."
   fi
 
-  local latest; latest="$(tm_latest_backup_for "$dest")" || latest=""
-  if [[ -n "$latest" ]]; then
+  local latest rc=0
+  latest="$(tm_latest_backup_for "$dest")" || rc=$?
+  if (( rc == 0 )) && [[ -n "$latest" ]]; then
     ui_kv "Last backup" "$(status_backup_age "$latest")"
+  elif (( rc == 2 )); then
+    ui_kv "Last backup" "not readable without Full Disk Access for $(fda_app_name)"
   else
     ui_kv "Last backup" "none yet"
   fi

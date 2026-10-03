@@ -8,6 +8,7 @@ All notable changes to tmbox are recorded here. The format follows
 
 ### Fixed
 
+- Missing Full Disk Access is detected before setup creates anything, with the app to grant it to and a reminder to restart that app. `tmutil`'s exit 80 is no longer reported as a wrong share password when its message says Full Disk Access, and its output is written to the log at the default level. `status` and `doctor` say the backup history needs Full Disk Access instead of reporting no backups ([#6](https://github.com/lab22poland/tmbox/issues/6)).
 - On a Mac that also backs up to another destination, the first-backup step no longer shows that destination's backup as the appliance's, and starts the first backup with `--destination`. `tmbox status` and `tmbox doctor` report backups to the appliance only ([#7](https://github.com/lab22poland/tmbox/issues/7)).
 - `tmbox doctor --fix` re-pins a changed address before it restarts the tunnel, and waits for Hetzner to apply the new firewall rules, instead of reporting a tunnel failure it then fixes ([#5](https://github.com/lab22poland/tmbox/issues/5)).
 - The ssh commands tmbox prints for copying name its own `known_hosts`, so they no longer fail with "Host key verification failed" ([#5](https://github.com/lab22poland/tmbox/issues/5)).
