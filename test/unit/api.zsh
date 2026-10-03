@@ -137,3 +137,18 @@ test_billable_list_covers_what_outlives_a_server() {
       || fail "$r is missing from the teardown audit"
   done
 }
+
+# --- firewall re-pinning (#5) -----------------------------------------------
+
+test_set_admin_cidr_waits_for_every_action_it_is_given() {
+  # set_rules answers with an `actions` array - one per server the firewall is
+  # applied to - and the rules are not in force until each one succeeds. The
+  # caller's next step is an ssh connection, which must not race them.
+  local waited
+  waited="$(
+    hc() { HTTP_STATUS=201; HTTP_BODY='{"actions":[{"id":11,"status":"running"},{"id":12,"status":"running"}]}'; return 0 }
+    hc_wait_action() { print -rn -- "$1 " }
+    hc_firewall_set_admin_cidr 99 198.51.100.7/32
+  )"
+  assert_eq "11 12 " "$waited"
+}

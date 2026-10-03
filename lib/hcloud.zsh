@@ -211,6 +211,12 @@ hc_firewall_create() {
 # "change one rule" call, and a read-modify-write here would be a way to
 # accidentally preserve a rule that should have expired - which is exactly how
 # an open tcp/445 survived a teardown on an earlier run of this project.
+#
+# Returns once Hetzner reports the new rules applied, not when it accepts the
+# request. The caller's next move is an ssh connection from the new address,
+# and one made while the old rules still apply times out exactly as though
+# nothing had been changed (#5). The response is an `actions` array - one per
+# server the firewall is applied to - not the single `action` most calls return.
 hc_firewall_set_admin_cidr() {
   hc POST "/firewalls/${1}/actions/set_rules" "$(jq -n --arg c "$2" '{
       rules: [
@@ -218,6 +224,10 @@ hc_firewall_set_admin_cidr() {
         {direction:"in", protocol:"icmp",            source_ips:[$c], description:"reachability checks"}
       ]
     }')" || hc_fail "updating the firewall"
+  local act
+  for act in ${(f)"$(json_get '.actions[]?.id' "$HTTP_BODY")"}; do
+    hc_wait_action "$act" "applying the firewall rules" 120
+  done
   return 0
 }
 
