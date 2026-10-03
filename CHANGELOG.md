@@ -6,6 +6,10 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- On a Mac that also backs up to another destination, the first-backup step no longer shows that destination's backup as the appliance's, and starts the first backup with `--destination`. `tmbox status` and `tmbox doctor` report backups to the appliance only ([#7](https://github.com/lab22poland/tmbox/issues/7)).
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed

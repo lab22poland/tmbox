@@ -106,8 +106,78 @@ tm_latest_backup() {
 # and the phase is what tells a stall from a slow link.
 tm_status_plist() { tmutil status 2>/dev/null }
 
+# tm_running [destination-id]
+#
+# With an id, only a backup *to that destination* counts. A Mac that also backs
+# up to a local disk runs those backups too, and without the filter setup showed
+# one of them as the appliance's first backup and would have called it finished
+# (#7). The id is missing from the status in the opening phases, before backupd
+# has picked a destination, so a running backup with no id is counted: it may
+# be ours, and tm_running_elsewhere does not claim it either.
 tm_running() {
-  tm_status_plist | grep -qE '"?Running"? *= *1'
+  local plist; plist="$(tm_status_plist)"
+  print -r -- "$plist" | grep -qE '"?Running"? *= *1' || return 1
+  [[ -n "${1:-}" ]] || return 0
+  local dest; dest="$(_tm_status_destination "$plist")"
+  [[ -z "$dest" || "$dest" == "$1" ]]
+}
+
+# tm_running_elsewhere <destination-id> - a backup to some other destination
+tm_running_elsewhere() {
+  local plist; plist="$(tm_status_plist)"
+  print -r -- "$plist" | grep -qE '"?Running"? *= *1' || return 1
+  local dest; dest="$(_tm_status_destination "$plist")"
+  [[ -n "$dest" && "$dest" != "$1" ]]
+}
+
+_tm_status_destination() {
+  print -r -- "$1" | sed -n 's/.*DestinationID"\{0,1\} *= *"\{0,1\}\([A-Fa-f0-9-]*\).*/\1/p' | head -1
+}
+
+# tm_last_snapshot <destination-id> - the newest completed backup to it
+#
+# Printed as a local "YYYY-MM-DD-HHMMSS" stamp, the form backup paths use, so
+# status_backup_age reads both. `tmutil latestbackup` cannot answer this: it
+# picks a destination itself, and needs root and Full Disk Access to do even
+# that. Time Machine's preferences keep a SnapshotDates list per destination,
+# appended to when a backup completes, and plutil reads it without either.
+#
+# Returns 1 when the destination has no completed backup, 2 when the
+# preferences cannot be read at all - a caller can then fall back rather than
+# report "none" for a destination it simply could not see.
+typeset -g TMBOX_TM_PREFS="${TMBOX_TM_PREFS:-/Library/Preferences/com.apple.TimeMachine.plist}"
+
+tm_last_snapshot() {
+  local want="$1" id n iso
+  plutil -extract Destinations raw -o - "$TMBOX_TM_PREFS" >/dev/null 2>&1 || return 2
+  local -i i=0
+  while id="$(plutil -extract "Destinations.${i}.DestinationID" raw -o - "$TMBOX_TM_PREFS" 2>/dev/null)"; do
+    if [[ "$id" == "$want" ]]; then
+      n="$(plutil -extract "Destinations.${i}.SnapshotDates" raw -o - "$TMBOX_TM_PREFS" 2>/dev/null)" || return 1
+      [[ "$n" == <-> ]] && (( n > 0 )) || return 1
+      iso="$(plutil -extract "Destinations.${i}.SnapshotDates.$(( n - 1 ))" raw -o - "$TMBOX_TM_PREFS" 2>/dev/null)" || return 1
+      local -i epoch
+      epoch="$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$iso" '+%s' 2>/dev/null)" || return 1
+      date -r "$epoch" '+%Y-%m-%d-%H%M%S'
+      return 0
+    fi
+    (( i++ ))
+  done
+  return 1
+}
+
+# tm_latest_backup_for <destination-id> - tm_last_snapshot, or the old answer
+#
+# Falls back to `tmutil latestbackup` only when the preferences are unreadable,
+# and only then, because that answer may be about another destination.
+tm_latest_backup_for() {
+  local out rc=0
+  out="$(tm_last_snapshot "$1")" || rc=$?
+  case $rc in
+    0) print -rn -- "$out" ;;
+    2) tm_latest_backup ;;
+    *) return 1 ;;
+  esac
 }
 
 tm_percent() {

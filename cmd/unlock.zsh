@@ -78,7 +78,7 @@ cmd_unlock() {
   if [[ -n "$(state_get destination_id)" ]]; then
     ui_blank
     ui_say "Time Machine will use the destination again at its next backup."
-    ui_say "To start one now: sudo tmutil startbackup"
+    ui_say "To start one now: sudo tmutil startbackup --destination $(state_get destination_id)"
   fi
 }
 
