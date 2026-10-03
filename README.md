@@ -328,8 +328,13 @@ never answers it; only `--delete-storage-box` does. There is no undo. Once the
 Storage Box is gone, destroy also removes tmbox's credentials, keys and state
 from this Mac.
 
-destroy does not remove the Time Machine destination itself; remove it in
-System Settings → General → Time Machine.
+destroy also removes the tunnel and the Time Machine destination from this Mac,
+whether or not the Storage Box is kept; removing a destination deletes nothing
+on it. That needs Full Disk Access for the terminal app, as setting it did; without
+it destroy carries on and prints the `tmutil removedestination` command to run
+later. If you set tmbox up again on the same Mac and the first backup fails with
+an authentication error, restart the Mac: macOS can keep the old destination's
+connection state for the 127.0.0.2 address until then.
 
 ## Why zsh
 

@@ -127,7 +127,13 @@ kc_delete() {
 kc_delete_all() {
   local kind
   for kind in $TMBOX_CREDENTIAL_KINDS; do kc_delete "$kind"; done
-  rmdir -- "$TMBOX_SECRET_DIR" 2>/dev/null
+  # Then everything else in the directory. Deleting only the kinds this version
+  # knows left behind whatever an older version - or a test run - had written,
+  # so "credentials removed" was not true (#13). Checked by name before it is
+  # removed: this is the one recursive delete in tmbox.
+  if [[ "${TMBOX_SECRET_DIR:t}" == secrets && -d "$TMBOX_SECRET_DIR" ]]; then
+    rm -rf -- "$TMBOX_SECRET_DIR"
+  fi
   return 0
 }
 
