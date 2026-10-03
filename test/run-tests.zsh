@@ -13,6 +13,8 @@ typeset -g ROOT="${0:A:h:h}"
 export TMBOX_ROOT="$ROOT"
 export TMBOX_TESTING=1
 
+source "$ROOT/test/env.zsh"
+
 local -a suites
 if (( $# > 0 )); then
   local name
