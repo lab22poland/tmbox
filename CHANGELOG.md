@@ -6,6 +6,8 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-03
+
 ### Fixed
 
 - `tmbox destroy` removes the Time Machine destination it added, and with the Storage Box gone deletes the whole credentials directory rather than only the kinds the current version knows ([#13](https://github.com/lab22poland/tmbox/issues/13)).
@@ -54,6 +56,7 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
-[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/lab22poland/tmbox/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/lab22poland/tmbox/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lab22poland/tmbox/releases/tag/v0.1.0
