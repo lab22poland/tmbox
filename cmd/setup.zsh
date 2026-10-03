@@ -1047,19 +1047,36 @@ setup_step9_first_backup() {
   local answer; answer="$(ans_get BACKUP_WAIT)"
   [[ "$answer" == <-> ]] && wait_min=$answer
 
+  local dest; dest="$(state_get destination_id)"
+
   # A backup already under way must not be restarted. Measured the hard way:
   # starting a second one dropped the first with
   # BACKUP_IN_PROGRESS_REQUEST_DROPPED, and what was left on the destination was
   # an incomplete bundle and a failed backup.
-  if tm_running; then
-    ui_ok "A backup is already running."
-    setup_watch_backup $wait_min
+  if tm_running "$dest"; then
+    ui_ok "A backup to the appliance is already running."
+    setup_watch_backup "$dest" $wait_min
     return 0
+  fi
+
+  # A backup to another destination - a local disk, typically - is not ours to
+  # watch, and not ours to interrupt either: the same rule applies to it. It
+  # was once shown here as the appliance's first backup (#7).
+  if tm_running_elsewhere "$dest"; then
+    ui_say "Time Machine is backing up to another destination right now. The first backup to the appliance can start when that one finishes."
+    if [[ "$answer" == "0" ]] || ! ui_confirm WAIT_OTHER_BACKUP "Wait for it, then start the first backup to the appliance?" "y"; then
+      ui_say "Time Machine alternates between its destinations and will get to the appliance on its own. To start it yourself once the other backup is done:"
+      ui_say "  sudo tmutil startbackup --destination ${dest}"
+      return 0
+    fi
+    ui_spin_start "Waiting for the other backup to finish"
+    while tm_running_elsewhere "$dest"; do sleep 15; done
+    ui_spin_stop ok "The other backup finished"
   fi
 
   if [[ "$answer" == "0" ]]; then
     ui_say "Starting the first backup and leaving it to run, as asked."
-    priv_run tmutil startbackup >/dev/null 2>&1 \
+    setup_start_backup "$dest" \
       || { ui_warn "Could not start a backup; Time Machine will start one on its own schedule."; return 0 }
     ui_ok "Backup started. tmbox status shows how it is getting on."
     return 0
@@ -1068,13 +1085,25 @@ setup_step9_first_backup() {
   ui_say "The first backup copies everything, so it is measured in hours rather than minutes - and it is bounded by the upload speed of this connection, not by the appliance. Later backups copy only what changed."
   ui_blank
 
-  if ! priv_run tmutil startbackup >/dev/null 2>&1; then
+  if ! setup_start_backup "$dest"; then
     ui_warn "Could not start a backup now."
     ui_say "Time Machine will start one on its own schedule; tmbox status reports it."
     return 0
   fi
 
-  setup_watch_backup $wait_min
+  setup_watch_backup "$dest" $wait_min
+}
+
+# setup_start_backup <destination-id>
+#
+# Named explicitly. A bare `startbackup` lets Time Machine choose, and with a
+# second destination configured it may well choose the other one.
+setup_start_backup() {
+  if [[ -n "$1" ]]; then
+    priv_run tmutil startbackup --destination "$1" >/dev/null 2>&1
+  else
+    priv_run tmutil startbackup >/dev/null 2>&1
+  fi
 }
 
 # setup_watch_backup <minutes, 0 for no limit>
@@ -1085,8 +1114,13 @@ setup_step9_first_backup() {
 # a user. The phase is, and it is also what distinguishes a slow link from a
 # stall.
 setup_watch_backup() {
-  local -i limit_min="$1" waited=0 interval=15
+  local dest="$1"
+  local -i limit_min="$2" waited=0 interval=15
   local phase
+
+  # Recorded first, so "finished" means a completed backup newer than this one
+  # appeared for this destination - not that some backup exists somewhere.
+  local before; before="$(tm_latest_backup_for "$dest")" || before=""
 
   while :; do
     # Out of 100, because what tmutil reports is a fraction rather than a byte
@@ -1094,13 +1128,13 @@ setup_watch_backup() {
     phase="$(tm_phase)"
     ui_progress "$(tm_percent)" 100 "${phase:-starting}"
 
-    if ! tm_running; then
+    if ! tm_running "$dest"; then
       # A backup that is no longer running either finished or failed, and
       # tmutil's own status does not say which. The destination's own record
       # does.
       ui_blank
-      local latest; latest="$(tm_latest_backup)" || latest=""
-      if [[ -n "$latest" ]]; then
+      local latest; latest="$(tm_latest_backup_for "$dest")" || latest=""
+      if [[ -n "$latest" && "$latest" != "$before" ]]; then
         ui_ok "The first backup finished."
         ui_kv "Backup" "$latest"
       else

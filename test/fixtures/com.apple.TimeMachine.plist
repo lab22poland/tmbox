@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The shape of /Library/Preferences/com.apple.TimeMachine.plist on macOS 26.7.1,
+     reduced to the keys tmbox reads: a network destination with no completed
+     backup yet, and a local disk with two. -->
+<plist version="1.0">
+<dict>
+  <key>Destinations</key>
+  <array>
+    <dict>
+      <key>DestinationID</key><string>0A1B2C3D-0000-4000-8000-00000000A11A</string>
+      <key>LastKnownVolumeName</key><string>tm-studio</string>
+      <key>RESULT</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>DestinationID</key><string>0A1B2C3D-0000-4000-8000-00000000D15C</string>
+      <key>LastKnownVolumeName</key><string>Local Disk</string>
+      <key>RESULT</key><integer>0</integer>
+      <key>SnapshotDates</key>
+      <array>
+        <date>2026-10-02T09:00:00Z</date>
+        <date>2026-10-03T15:06:49Z</date>
+      </array>
+    </dict>
+  </array>
+  <key>LastDestinationID</key><string>0A1B2C3D-0000-4000-8000-00000000D15C</string>
+</dict>
+</plist>

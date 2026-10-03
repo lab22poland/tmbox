@@ -400,9 +400,9 @@ doctor_check_timemachine() {
       "This is the only layer nobody else can read, including us. System Settings → Time Machine."
   fi
 
-  local latest; latest="$(tm_latest_backup)" || latest=""
+  local latest; latest="$(tm_latest_backup_for "$(state_get destination_id)")" || latest=""
   if [[ -z "$latest" ]]; then
-    doc_warn "No backup has completed yet."
+    doc_warn "No backup to the appliance has completed yet."
   else
     doc_pass "Last backup: $(status_backup_age "$latest")"
   fi

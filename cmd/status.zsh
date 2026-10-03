@@ -40,18 +40,20 @@ status_backup() {
   ui_rule "Backups"
   ui_blank
 
-  if tm_running; then
+  # Only backups to the appliance count; see tm_running for why (#7).
+  local dest; dest="$(state_get destination_id)"
+  if tm_running "$dest"; then
     local phase; phase="$(tm_phase)"
     local pct;   pct="$(tm_percent)"
     ui_ok "A backup is running."
     ui_progress "$pct" 100 "${phase:-working}"
+  elif tm_running_elsewhere "$dest"; then
+    ui_item "No backup to the appliance is running; Time Machine is backing up to another destination."
   else
     ui_item "No backup is running."
   fi
 
-  # The exit status of `tmutil latestbackup` is not usable - it is 0 even when
-  # it prints "Failed to find any backups". tm_latest_backup reads the output.
-  local latest; latest="$(tm_latest_backup)" || latest=""
+  local latest; latest="$(tm_latest_backup_for "$dest")" || latest=""
   if [[ -n "$latest" ]]; then
     ui_kv "Last backup" "$(status_backup_age "$latest")"
   else
