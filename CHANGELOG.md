@@ -6,6 +6,11 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `tmbox doctor --fix` re-pins a changed address before it restarts the tunnel, and waits for Hetzner to apply the new firewall rules, instead of reporting a tunnel failure it then fixes ([#5](https://github.com/lab22poland/tmbox/issues/5)).
+- The ssh commands tmbox prints for copying name its own `known_hosts`, so they no longer fail with "Host key verification failed" ([#5](https://github.com/lab22poland/tmbox/issues/5)).
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed

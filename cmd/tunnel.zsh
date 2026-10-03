@@ -382,7 +382,7 @@ tunnel_report() {
 tunnel_diagnose() {
   ui_blank
   ui_say "What to check, in the order that usually finds it:"
-  ui_item "the appliance is reachable:  ssh -i \"$(ssh_key_path admin)\" root@$(state_get server_ip) true"
+  ui_item "the appliance is reachable:  $(ssh_hint "$(state_get server_ip)" true)"
   ui_item "the daemon's own errors:     sudo tail -20 ${TMBOX_TUNNEL_LOG}"
   ui_item "the job's state:             sudo launchctl print system/${TMBOX_TUNNEL_LABEL}"
   ui_blank
