@@ -4,6 +4,12 @@ All notable changes to tmbox are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and tmbox uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The spinner shown during every wait in an interactive `tmbox setup` printed a literal `\r` and each frame on one growing line instead of redrawing in place ([#1](https://github.com/lab22poland/tmbox/issues/1)).
+
 ## [0.1.0] - 2026-10-01
 
 The first release.
@@ -36,4 +42,5 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/lab22poland/tmbox/releases/tag/v0.1.0

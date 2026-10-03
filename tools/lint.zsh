@@ -118,6 +118,14 @@ check_zsh_in_bash
 check_pattern '\becho[[:space:]]+-e\b' \
   'echo -e is not portable - use printf, or print -r in zsh'
 
+# A backslash escape in double quotes handed to `print -r`. In zsh "\r" is two
+# characters, and -r turns escape processing off, so they reach the terminal as
+# a visible backslash and letter. That is how the spinner drew every frame on
+# one growing line in 0.1.0 (#1). The escape belongs in $'...'. A "$(" stops
+# the match: the escape is then inside a command, where printf interprets it.
+check_pattern '(print[[:space:]]+-r[a-zA-Z]*|_ui_raw|_ui_out)[[:space:]]+(--[[:space:]]+)?"([^"$]|\$[^(])*\\[rnte]' \
+  "print -r does not interpret escapes - write \$'\\r' rather than \"\\r\""
+
 # An unquoted `$(...)` inside [[ ]]. zsh does not word-split it, so unlike in
 # bash this does not break loudly - it quietly compares something slightly
 # different, most visibly when the command produces nothing at all. The pattern

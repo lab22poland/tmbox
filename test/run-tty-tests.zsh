@@ -79,7 +79,28 @@ _check "curl|zsh: still an interactive terminal" "$out" "STATE interactive=1"
 _check "curl|zsh: prompts read from the tty"     "$out" "RESULT name=[studio2] cap=[2TB]"
 _check "curl|zsh: read did not eat the script"   "$out" "proceed=[no]"
 
-# --- 3. unattended: every prompt answered in advance ------------------------
+# --- 3. the spinner redraws one line in place -----------------------------
+#
+# The animation only runs with a terminal and colour, so this is the only place
+# it is drawn at all. The frames must be separated by a real carriage return; a
+# literal backslash-r means every frame lands on the same growing line.
+
+out="$(TERM=xterm-256color python3 "$PTY" --timeout 25 \
+        -- /bin/zsh "$ROOT/test/tty/spinner.zsh" 2>&1)"
+
+_check "spinner: animated with a terminal and colour" "$out" "STATE interactive=1 colour=1"
+_check "spinner: frames are drawn"                    "$out" "Spinning"
+_check "spinner: frames end in a carriage return"     "$out" $'\r\033[K'
+_check "spinner: the stop line is printed"            "$out" "Spun"
+
+if [[ "$out" == *'\r'* ]]; then
+  printf "  \033[31mFAIL\033[0m  %s\n" "the spinner printed a literal backslash-r"
+  (( failed++ ))
+else
+  printf "  \033[32mok\033[0m    %s\n" "the spinner printed no literal backslash-r"
+fi
+
+# --- 4. unattended: every prompt answered in advance ------------------------
 #
 # The other half of the contract: nothing in tmbox requires a human if the
 # caller already knows the answers.
