@@ -21,6 +21,7 @@ setopt pipe_fail
 
 typeset -g ROOT="${0:A:h:h}"
 export TMBOX_ROOT="$ROOT"
+source "$ROOT/test/env.zsh"
 
 typeset -g PTY="$ROOT/tools/pty-run.py"
 typeset -g FIXTURE="$ROOT/test/tty/prompts.zsh"

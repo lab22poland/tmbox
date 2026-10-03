@@ -6,6 +6,10 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Running the test suite no longer writes to a real installation. The libraries computed their paths from `$HOME` when sourced, so the credential tests overwrote `~/.config/tmbox/secrets/`, including the ZFS passphrase. The runners now move every path into a scratch directory, and the suites refuse to run against the real one ([#11](https://github.com/lab22poland/tmbox/issues/11)).
+
 ## [0.1.1] - 2026-10-03
 
 ### Fixed
