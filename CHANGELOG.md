@@ -6,6 +6,12 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-04
+
+### Added
+
+- An upload limit for backups. A backup otherwise takes the whole upload of the connection, and on lines with a deep modem buffer that made the rest of the network unusable and the router report the internet as down. Setup now measures the upload with macOS's `networkQuality` before the first backup and offers to cap backups at 80% of it (`--uplink-limit`). The cap is applied on the appliance with CAKE, to the tunnel's traffic only, and survives reboots. `tmbox limit` shows or changes it later and installs it on appliances built earlier; `status` shows it and `doctor` checks it is in force ([#20](https://github.com/lab22poland/tmbox/issues/20)).
+
 ## [0.1.3] - 2026-10-04
 
 ### Fixed
@@ -62,7 +68,8 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
-[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/lab22poland/tmbox/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/lab22poland/tmbox/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/lab22poland/tmbox/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/lab22poland/tmbox/compare/v0.1.0...v0.1.1

@@ -237,6 +237,7 @@ doctor_check_appliance() {
   local -a f=( "${(@f)out}" )
   local keystatus="${f[1]}" pool="${f[2]}" mountopts="${f[3]}" dio="${f[4]}"
   local smbd="${f[5]}" used="${f[6]}" quota="${f[7]}" pct="${f[8]}" mc="${f[9]}" sessions="${f[10]}"
+  local shaper="${f[11]:-}"
 
   # Locked is not broken, and the difference matters: it is the resting state
   # after any reboot, and it has its own one-word fix.
@@ -281,6 +282,45 @@ doctor_check_appliance() {
   doctor_check_space "$used" "$quota" "$pct"
   doctor_check_multichannel "$host" "$mc"
   doctor_check_stale_sessions "$host" "$sessions"
+  doctor_check_uplink "$host" "$shaper"
+}
+
+# doctor_check_uplink - the upload limit, as the kernel has it (#20)
+#
+# No limit is a choice, and is reported as one when it was made. Never having
+# been asked - an appliance from before 0.1.4 - is a warning, because the
+# symptom is the whole network slowing down during a backup, and nothing
+# points from there to here. A limit recorded but not in force is the real
+# fault: the shaper did not come up after a reboot.
+doctor_check_uplink() {
+  local host="$1" report="$2" configured active chosen
+  chosen="$(state_get uplink_kbit)"
+  configured="$(uplink_field "$report" configured)" || configured=""
+  active="$(uplink_field "$report" active)" || active=""
+
+  if [[ -z "$configured" ]]; then
+    if [[ "$chosen" == off ]]; then
+      doc_pass "Backups have no upload limit, as chosen."
+    else
+      doc_warn "Backups can take the whole upload of this connection." \
+        "If the network slows down or drops during a backup, set a limit: tmbox limit auto"
+    fi
+    return 0
+  fi
+
+  if [[ "$configured" == "$active" ]]; then
+    [[ "$configured" == off ]] \
+      && doc_pass "Backups have no upload limit, as chosen." \
+      || doc_pass "Backups are limited to $(uplink_fmt "$configured")."
+    return 0
+  fi
+
+  if (( DOCTOR_FIX )) && ssh_run "$host" "systemctl restart tmbox-shape.service" >/dev/null 2>&1; then
+    doc_pass "The upload limit was not in force; it is now ($(uplink_fmt "$configured"))."
+    return 0
+  fi
+  doc_fail "The upload limit of $(uplink_fmt "$configured") is recorded but not in force." \
+    "Fix: tmbox doctor --fix, or on the appliance: systemctl status tmbox-shape"
 }
 
 # doctor_check_multichannel - off, or a brief stall ends the backup (#17)
@@ -414,7 +454,8 @@ zfs get -H -o value used tank/tm/${mac} 2>/dev/null || echo ''
 zfs get -H -o value refquota tank/tm/${mac} 2>/dev/null || echo ''
 zfs list -Hp -o used,refquota tank/tm/${mac} 2>/dev/null | awk '{ if (\$2 > 0) printf \"%d\\n\", (\$1 * 100) / \$2; else print \"\" }' || echo ''
 testparm -s --parameter-name='server multi channel support' 2>/dev/null || echo ''
-for p in \$(smbstatus -p 2>/dev/null | awk '/^[0-9]+/ {print \$1}'); do ss -tnp 2>/dev/null | grep -q \"pid=\$p,\" || echo \$p; done | wc -l | tr -d ' '"
+for p in \$(smbstatus -p 2>/dev/null | awk '/^[0-9]+/ {print \$1}'); do ss -tnp 2>/dev/null | grep -q \"pid=\$p,\" || echo \$p; done | wc -l | tr -d ' '
+${UPLINK_SHAPER} show 2>/dev/null || echo ''"
 }
 
 # --- 4. Time Machine's own state --------------------------------------------
