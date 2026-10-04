@@ -452,6 +452,14 @@ write_smb_conf() {
     # with ZFS the per-attribute xattr ceiling is exactly 65536 bytes, so
     # "stream" fails only on large resource forks - the worst kind of failure.
 
+    # One TCP connection, to a loopback address, through one ssh forward:
+    # multichannel has nothing to spread across. It is on by default on both
+    # ends, and it broke reconnects - after a brief stall the macOS client
+    # reconnected, then failed to match 127.0.0.2 to a network interface
+    # ("could not find one of the nics") and dropped every outstanding write,
+    # ending the backup (#17).
+    server multi channel support = no
+
     # A rebooted client leaves leases on the band files that block its own next
     # backup with BACKUP_FAILED_DISK_IMAGE_BUSY. Samba's default deadtime is
     # seven days; across a link that drops, an unreaped session is not an edge

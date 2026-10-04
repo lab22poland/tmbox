@@ -6,6 +6,10 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A brief network stall no longer ends a backup. Samba and the macOS client both enable SMB multichannel by default; over the loopback tunnel the client's reconnect then failed to match 127.0.0.2 to a network interface and dropped every outstanding write, failing the backup with `BACKUP_FAILED_DISCONNECTED_NETWORK`. The appliance now turns multichannel off, and `tmbox doctor --fix` turns it off on appliances built earlier, when no backup is running ([#17](https://github.com/lab22poland/tmbox/issues/17)).
+
 ## [0.1.2] - 2026-10-03
 
 ### Fixed

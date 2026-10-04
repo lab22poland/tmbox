@@ -73,7 +73,7 @@ test_the_remote_script_asks_for_exactly_the_fields_that_are_read() {
   state_set mac_name "livetest" >/dev/null 2>&1
   local script; script="$(doctor_remote_script)"
   local -i lines; lines="$(print -r -- "$script" | grep -c .)"
-  assert_eq 9 "$lines" "nine facts are read, so nine must be asked for"
+  assert_eq 10 "$lines" "ten facts are read, so ten must be asked for"
 }
 
 test_the_usage_line_ends_in_a_newline() {
@@ -172,4 +172,43 @@ test_the_ssh_hint_names_tmboxs_own_known_hosts() {
   assert_contains "$hint" "-i \"$(ssh_key_path admin)\""
   assert_matches  "$hint" ' root@203\.0\.113\.10 true$'
   assert_matches  "$(ssh_hint 203.0.113.10)" ' root@203\.0\.113\.10$' "no command, no trailing space"
+}
+
+# --- SMB multichannel (#17) -------------------------------------------------
+
+test_multichannel_off_passes_and_on_warns() {
+  _reset; doctor_check_multichannel 203.0.113.10 "No" >/dev/null
+  assert_eq 0 $DOCTOR_WARNED "off is what tmbox builds"
+  _reset; doctor_check_multichannel 203.0.113.10 "Yes" >/dev/null
+  assert_eq 1 $DOCTOR_WARNED "on is worth a warning, not a failure: backups mostly work"
+  assert_eq 0 $DOCTOR_FAILED
+}
+
+test_multichannel_fix_never_restarts_samba_under_a_backup() {
+  # Turning it off restarts Samba. With a client connected that would end the
+  # very backup the change is meant to protect, so the remote script refuses
+  # and doctor says to come back later.
+  local warned
+  warned="$(
+    _reset; DOCTOR_FIX=1
+    ssh_run() { print -r -- BUSY }
+    doctor_check_multichannel 203.0.113.10 "Yes" >/dev/null
+    print -rn -- "$DOCTOR_WARNED $DOCTOR_FAILED"
+  )"
+  assert_eq "1 0" "$warned"
+  local script; script="$(doctor_multichannel_off_script)"
+  local busy_line; busy_line="$(print -r -- "$script" | grep -n BUSY | cut -d: -f1)"
+  local restart_line; restart_line="$(print -r -- "$script" | grep -n 'systemctl restart' | cut -d: -f1)"
+  (( busy_line < restart_line )) || fail "the busy check must come before the restart"
+}
+
+test_multichannel_fix_reports_success() {
+  local counts
+  counts="$(
+    _reset; DOCTOR_FIX=1
+    ssh_run() { print -r -- DONE }
+    doctor_check_multichannel 203.0.113.10 "Yes" >/dev/null
+    print -rn -- "$DOCTOR_WARNED $DOCTOR_FAILED"
+  )"
+  assert_eq "0 0" "$counts"
 }

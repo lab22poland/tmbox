@@ -10,9 +10,10 @@
 # **Each check says what it found, not only pass or fail.** "CIFS mount is
 # soft, not hard" is actionable; "mount check failed" is a second question.
 #
-# `--fix` repairs the three faults that are safe to repair without asking:
+# `--fix` repairs the four faults that are safe to repair without asking:
 # re-pinning the firewall to this Mac's current address, clearing stale Samba
-# sessions, and restarting a dead tunnel. Everything else is reported with the
+# sessions, restarting a dead tunnel, and turning SMB multichannel off on an
+# appliance built before 0.1.3. Everything else is reported with the
 # command that would fix it, because the rest either destroy data, cost money,
 # or need a decision.
 #
@@ -235,7 +236,7 @@ doctor_check_appliance() {
 
   local -a f=( "${(@f)out}" )
   local keystatus="${f[1]}" pool="${f[2]}" mountopts="${f[3]}" dio="${f[4]}"
-  local smbd="${f[5]}" used="${f[6]}" quota="${f[7]}" pct="${f[8]}" sessions="${f[9]}"
+  local smbd="${f[5]}" used="${f[6]}" quota="${f[7]}" pct="${f[8]}" mc="${f[9]}" sessions="${f[10]}"
 
   # Locked is not broken, and the difference matters: it is the resting state
   # after any reboot, and it has its own one-word fix.
@@ -278,7 +279,57 @@ doctor_check_appliance() {
     || doc_fail "Samba is not running (${smbd:-unknown})." "On the appliance: systemctl status smbd"
 
   doctor_check_space "$used" "$quota" "$pct"
+  doctor_check_multichannel "$host" "$mc"
   doctor_check_stale_sessions "$host" "$sessions"
+}
+
+# doctor_check_multichannel - off, or a brief stall ends the backup (#17)
+#
+# Appliances built before 0.1.3 have Samba's default, on. Turning it off needs a
+# Samba restart, which would drop a backup in progress - so --fix does it only
+# when no client is connected, and otherwise says to run it again later.
+doctor_check_multichannel() {
+  local host="$1" mc="$2"
+  case "${(L)mc}" in
+    no)  doc_pass "SMB multichannel is off."; return 0 ;;
+    "")  doc_warn "Could not read Samba's multichannel setting."; return 0 ;;
+  esac
+
+  if (( ! DOCTOR_FIX )); then
+    doc_warn "SMB multichannel is on." \
+      "Over the tunnel it turns a brief network stall into a failed backup. Fix: tmbox doctor --fix, while no backup is running"
+    return 0
+  fi
+
+  local out
+  out="$(ssh_run "$host" "$(doctor_multichannel_off_script)" 2>/dev/null)" || out=""
+  case "$out" in
+    *DONE*)  doc_pass "SMB multichannel was on; it is off now, and Samba was restarted." ;;
+    *BUSY*)  doc_warn "SMB multichannel is on, and was left on: a client is connected." \
+               "Turning it off restarts Samba, which would drop a backup in progress. Run tmbox doctor --fix again when none is running." ;;
+    *)       doc_fail "Could not turn SMB multichannel off." \
+               "On the appliance: add 'server multi channel support = no' under [global] in /etc/samba/smb.conf, then systemctl restart smbd" ;;
+  esac
+}
+
+# doctor_multichannel_off_script - runs on the appliance; prints DONE or BUSY
+#
+# Edits smb.conf in place rather than rewriting it: the bootstrap owns that
+# file, and the next bootstrap writes the same line anyway. testparm is the
+# proof the edit took, before anything is restarted.
+doctor_multichannel_off_script() {
+  print -r -- 'set -e
+f=/etc/samba/smb.conf
+if [ "$(smbstatus -b 2>/dev/null | awk "/^[0-9]+ /" | wc -l)" -gt 0 ]; then echo BUSY; exit 0; fi
+if grep -qiE "^[[:space:]]*server multi channel support" "$f"; then
+  sed -i -E "s/^([[:space:]]*server multi channel support[[:space:]]*=).*/\1 no/I" "$f"
+else
+  sed -i "/^\[global\]/a\    server multi channel support = no" "$f"
+fi
+[ "$(testparm -s --parameter-name="server multi channel support" 2>/dev/null)" = "No" ]
+systemctl restart smbd
+systemctl is-active --quiet smbd
+echo DONE'
 }
 
 # doctor_check_space - a full destination is the failure nobody sees
@@ -335,7 +386,7 @@ doctor_check_stale_sessions() {
   fi
 }
 
-# doctor_remote_script - nine facts, one per line, order fixed
+# doctor_remote_script - ten facts, one per line, order fixed
 #
 # `|| echo` on every line so a missing command still produces its line: the
 # reader above is positional, and a short answer would shift every later value
@@ -362,6 +413,7 @@ systemctl is-active smbd 2>/dev/null || echo inactive
 zfs get -H -o value used tank/tm/${mac} 2>/dev/null || echo ''
 zfs get -H -o value refquota tank/tm/${mac} 2>/dev/null || echo ''
 zfs list -Hp -o used,refquota tank/tm/${mac} 2>/dev/null | awk '{ if (\$2 > 0) printf \"%d\\n\", (\$1 * 100) / \$2; else print \"\" }' || echo ''
+testparm -s --parameter-name='server multi channel support' 2>/dev/null || echo ''
 for p in \$(smbstatus -p 2>/dev/null | awk '/^[0-9]+/ {print \$1}'); do ss -tnp 2>/dev/null | grep -q \"pid=\$p,\" || echo \$p; done | wc -l | tr -d ' '"
 }
 
