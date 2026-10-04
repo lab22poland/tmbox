@@ -185,11 +185,12 @@ status_appliance() {
     return 0
   fi
 
-  local keystatus pool used quota
+  local keystatus pool used quota shaper
   keystatus="$(print -r -- "$out" | sed -n '1p')"
   pool="$(print -r -- "$out"      | sed -n '2p')"
   used="$(print -r -- "$out"      | sed -n '3p')"
   quota="$(print -r -- "$out"     | sed -n '4p')"
+  shaper="$(print -r -- "$out"    | sed -n '5p')"
 
   case "$keystatus" in
     available) ;;
@@ -201,9 +202,11 @@ status_appliance() {
   if [[ -n "$used" && -n "$quota" ]]; then
     ui_kv "Used" "${used} of ${quota}"
   fi
+  local limit; limit="$(uplink_field "$shaper" active)" || limit=off
+  ui_kv "Upload limit" "$(uplink_fmt "$limit")"
 }
 
-# status_remote_script - four facts, one line each, in a fixed order
+# status_remote_script - five facts, one line each, in a fixed order
 #
 # Fixed order rather than key=value because the reader above is positional and
 # a missing value must still occupy its line. `echo` on failure keeps the line
@@ -213,7 +216,8 @@ status_remote_script() {
   print -r -- "zfs get -H -o value keystatus tank/tm 2>/dev/null || echo unknown
 zpool list -H -o health tank 2>/dev/null || echo unknown
 zfs get -H -o value used tank/tm/${mac} 2>/dev/null || echo ''
-zfs get -H -o value refquota tank/tm/${mac} 2>/dev/null || echo ''"
+zfs get -H -o value refquota tank/tm/${mac} 2>/dev/null || echo ''
+${UPLINK_SHAPER} show 2>/dev/null || echo ''"
 }
 
 # --- what it costs ----------------------------------------------------------

@@ -16,6 +16,7 @@ source "$TMBOX_ROOT/lib/state.zsh"
 source "$TMBOX_ROOT/lib/secrets.zsh"
 source "$TMBOX_ROOT/lib/sshx.zsh"
 source "$TMBOX_ROOT/lib/macos.zsh"
+source "$TMBOX_ROOT/lib/uplink.zsh"
 source "$TMBOX_ROOT/cmd/tunnel.zsh"
 source "$TMBOX_ROOT/cmd/status.zsh"
 source "$TMBOX_ROOT/cmd/doctor.zsh"
@@ -73,7 +74,7 @@ test_the_remote_script_asks_for_exactly_the_fields_that_are_read() {
   state_set mac_name "livetest" >/dev/null 2>&1
   local script; script="$(doctor_remote_script)"
   local -i lines; lines="$(print -r -- "$script" | grep -c .)"
-  assert_eq 10 "$lines" "ten facts are read, so ten must be asked for"
+  assert_eq 11 "$lines" "eleven facts are read, so eleven must be asked for"
 }
 
 test_the_usage_line_ends_in_a_newline() {
@@ -211,4 +212,33 @@ test_multichannel_fix_reports_success() {
     print -rn -- "$DOCTOR_WARNED $DOCTOR_FAILED"
   )"
   assert_eq "0 0" "$counts"
+}
+
+# --- the upload limit (#20) --------------------------------------------------
+
+_uplink_counts() {
+  (
+    _reset; DOCTOR_FIX="$3"
+    state_set uplink_kbit "$1" >/dev/null 2>&1
+    [[ -n "$1" ]] || state_unset uplink_kbit >/dev/null 2>&1
+    ssh_run() { return 0 }
+    doctor_check_uplink 203.0.113.10 "$2" >/dev/null
+    print -rn -- "$DOCTOR_WARNED $DOCTOR_FAILED"
+  )
+}
+
+test_uplink_in_force_passes() {
+  assert_eq "0 0" "$(_uplink_counts 20000 "configured=20000 active=20000 dropped=3" 0)"
+}
+
+test_uplink_never_asked_warns_and_chosen_off_passes() {
+  # An appliance from before 0.1.4 has no shaper, so the report is empty.
+  assert_eq "1 0" "$(_uplink_counts "" "" 0)" "never set: the symptom points nowhere, so say it"
+  assert_eq "0 0" "$(_uplink_counts off "" 0)" "off was a choice"
+  assert_eq "0 0" "$(_uplink_counts off "configured=off active=off dropped=0" 0)"
+}
+
+test_uplink_recorded_but_not_in_force_fails_unless_fixed() {
+  assert_eq "0 1" "$(_uplink_counts 20000 "configured=20000 active=off dropped=0" 0)"
+  assert_eq "0 0" "$(_uplink_counts 20000 "configured=20000 active=off dropped=0" 1)" "--fix restarts the unit"
 }

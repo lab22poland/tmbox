@@ -56,6 +56,7 @@ typeset -ga TMBOX_SETUP_FLAGS=(
   "hetzner-token:The Hetzner API token"
   "container-mb:Size of the pool's container file, in MiB"
   "backup-wait:Minutes to watch the first backup; 0 starts it and returns"
+  "uplink-limit:Cap backups at this many Mbit/s; auto (80% of a measurement) or off"
   "zfs-passphrase:The appliance's dataset passphrase, for 'tmbox unlock'"
 )
 

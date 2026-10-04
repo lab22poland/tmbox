@@ -1263,6 +1263,11 @@ setup_step9_first_backup() {
     ui_spin_stop ok "The other backup finished"
   fi
 
+  # Before the backup starts and after any other one has finished: the only
+  # moment the line is idle enough for the measurement to mean something (#20).
+  limit_setup "$(state_get server_ip)"
+  ui_blank
+
   if [[ "$answer" == "0" ]]; then
     ui_say "Starting the first backup and leaving it to run, as asked."
     setup_start_backup "$dest" \

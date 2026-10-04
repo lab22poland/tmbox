@@ -1,0 +1,14 @@
+{
+  "base_rtt" : 106.07158660888672,
+  "end_date" : "2026-10-04 09:04:56.408",
+  "error_code" : -1005,
+  "error_domain" : "NSURLErrorDomain",
+  "interface_name" : "en0",
+  "os_version" : "Version 26.6.2 (Build 25G83)",
+  "start_date" : "2026-10-04 09:04:43.453",
+  "test_endpoint" : "deber5-edge-bx-003.aaplimg.com",
+  "ul_bytes_transferred" : 38404094,
+  "ul_flows" : 12,
+  "ul_responsiveness" : 125.84047698974609,
+  "ul_throughput" : 31553098
+}

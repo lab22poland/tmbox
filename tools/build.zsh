@@ -49,6 +49,7 @@ typeset -ga LIBS=(
   lib/hcloud.zsh
   lib/hbox.zsh
   lib/preflight.zsh
+  lib/uplink.zsh
 )
 
 typeset -ga CMDS=(
@@ -58,6 +59,7 @@ typeset -ga CMDS=(
   cmd/tunnel.zsh
   cmd/unlock.zsh
   cmd/destroy.zsh
+  cmd/limit.zsh
 )
 
 mkdir -p dist
@@ -112,6 +114,7 @@ embed_b64() {
 }
 
 embed_b64 TMBOX_BOOTSTRAP    appliance/bootstrap.sh
+embed_b64 TMBOX_SHAPER       appliance/shape.sh
 embed_b64 TMBOX_TUNNEL_PLIST macos/tunnel.plist
 embed_b64 TMBOX_TUNNEL_BIN   macos/tmbox-tunnel
 embed_b64 TMBOX_SETDEST_EXP  macos/setdest.exp

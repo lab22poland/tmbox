@@ -4,15 +4,15 @@ A private Time Machine destination on Hetzner, set up by one shell script from a
 Mac that has nothing installed.
 
 ```zsh
-curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.3/tmbox.zsh
-curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.3/tmbox.zsh.sha256
+curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.4/tmbox.zsh
+curl -fsSLO https://github.com/lab22poland/tmbox/releases/download/v0.1.4/tmbox.zsh.sha256
 shasum -a 256 -c tmbox.zsh.sha256    # must print "tmbox.zsh: OK"
 less tmbox.zsh && zsh tmbox.zsh setup
 ```
 
 The digest is published twice: as the `tmbox.zsh.sha256` asset on the release,
 and in the repository itself at
-[`dist/tmbox.zsh.sha256`](dist/tmbox.zsh.sha256) under the `v0.1.3` tag. The
+[`dist/tmbox.zsh.sha256`](dist/tmbox.zsh.sha256) under the `v0.1.4` tag. The
 file is the line `shasum -a 256` itself prints, so `shasum -c` checks it
 directly when both files are in the same directory. The build is reproducible,
 so `make dist` on a checkout of the tag produces the same digest.
@@ -20,7 +20,7 @@ so `make dist` on a checkout of the tag produces the same digest.
 The one-liner form works too, and is offered second on purpose:
 
 ```zsh
-curl -fsSL https://github.com/lab22poland/tmbox/releases/download/v0.1.3/tmbox.zsh | zsh -s -- setup
+curl -fsSL https://github.com/lab22poland/tmbox/releases/download/v0.1.4/tmbox.zsh | zsh -s -- setup
 ```
 
 At the end, Time Machine is backing up to an appliance in your own Hetzner
@@ -29,7 +29,7 @@ costing about **€17.39/month at 2 TB**. You need a Mac, an administrator
 password and a payment card. You do not need a Hetzner account yet, a package
 manager, or any idea what a sparsebundle is.
 
-> **Status: 0.1.3 is the current release.** It is 0.1.0, the first release,
+> **Status: 0.1.4 is the current release.** It is 0.1.0, the first release,
 > with the fixes listed in the changelog; everything said here about 0.1.0
 > applies to it unless the changelog says otherwise. It builds the appliance, connects
 > your Mac to it, points Time Machine at it, starts the first backup, and gives
@@ -116,12 +116,14 @@ appliance, or part of one, it shows what exists and asks once whether to
 continue; it does not ask again for the size, the name or the location, and
 creates only what is missing. Before it connects to the appliance it re-pins
 the firewall if this connection's public address has changed, and it re-reads
-the share password from the appliance if the copy on this Mac differs. Needs a
-terminal unless run with `--non-interactive`.
+the share password from the appliance if the copy on this Mac differs. Before
+the first backup it measures this connection's upload and offers to cap backups
+at 80% of it - see `tmbox limit`. Needs a terminal unless run with
+`--non-interactive`.
 
 **`tmbox status`** answers four questions - is a backup running, when was the
-last one, is the tunnel up, how full is the appliance - and shows the monthly
-cost. It is read-only and never changes anything. It still works when the
+last one, is the tunnel up, how full is the appliance - and shows the upload
+limit and the monthly cost. It is read-only and never changes anything. It still works when the
 appliance is unreachable, and says so.
 
 **`tmbox doctor [--fix]`** runs every known failure as a named check: the
@@ -130,13 +132,14 @@ real SMB2 negotiate, not just a TCP connect), whether the tunnel has been
 dropping and restarting, whether the firewall still allows this Mac's current
 public address, whether the appliance is locked, the ZFS pool's health, the
 Storage Box mount, the loop device, Samba, free space, stale Samba sessions,
-the Time Machine destination, Time Machine encryption and the last backup.
+whether the upload limit is in force, the Time Machine destination, Time Machine encryption and the last backup.
 
-With `--fix` it repairs the four faults that are safe to repair without
+With `--fix` it repairs the five faults that are safe to repair without
 asking: it re-pins the firewall to this Mac's current address, clears stale
-Samba sessions by restarting Samba, restarts a tunnel that is down, and turns
+Samba sessions by restarting Samba, restarts a tunnel that is down, turns
 SMB multichannel off on an appliance built before 0.1.3 - only while no backup
-is running, since that restarts Samba too.
+is running, since that restarts Samba too - and re-applies an upload limit
+that is recorded but not in force.
 Everything else is reported with the command that would fix it.
 
 Exit status, so it can run from cron or a monitoring job:
@@ -157,6 +160,20 @@ never into a file on the appliance. It then reports whether Samba came back.
 Exit status: 0 unlocked or already unlocked, 3 no appliance recorded, 4 the
 appliance did not answer, 5 the passphrase was not accepted, 6 no passphrase
 available.
+
+**`tmbox limit [Mbit/s | auto | off]`** caps how much of this connection's
+upload a backup may take. Time Machine sends as fast as the line allows, and on
+a line with a deep buffer in the modem - LTE and 5G especially - that makes
+everything else on the network slow down or drop while a backup runs. With no
+argument it shows the limit in force; `tmbox limit 20` caps backups at
+20 Mbit/s, `auto` measures the upload with macOS's own `networkQuality` and
+takes 80% of it, and `off` removes the cap. The limit is applied on the
+appliance, to the tunnel's traffic only, and survives its reboots; nothing on
+this Mac changes. `auto` refuses while a backup to the appliance is running,
+because it would measure only what that backup leaves over. The usable upload
+under load is often well below what a speed test shows, so if the network still
+suffers during a backup, lower the number. Appliances built before 0.1.4 get
+the shaper the first time this is run.
 
 **`tmbox tunnel <action>`** manages the LaunchDaemon that carries SMB over SSH.
 Actions: `install`, `uninstall`, `start`, `stop`, `restart`, and `status` (the
@@ -205,6 +222,7 @@ Setup answers:
 | `--container-mb` | Size of the pool's container file in MiB. Defaults to 95% of the Storage Box |
 | `--backup-wait` | Minutes to watch the first backup. `0` starts it and returns; unset watches until it ends |
 | `--zfs-passphrase` | The appliance's dataset passphrase, for `tmbox unlock` |
+| `--uplink-limit` | Cap backups at this many Mbit/s; `auto` takes 80% of a measured upload, `off` sets no cap. Default `auto` |
 
 Any answer can also be given as `TMBOX_ANSWER_<KEY>` in the environment, for
 example `TMBOX_ANSWER_CAPACITY=2TB`.
