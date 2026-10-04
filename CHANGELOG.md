@@ -6,6 +6,8 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-04
+
 ### Fixed
 
 - A brief network stall no longer ends a backup. Samba and the macOS client both enable SMB multichannel by default; over the loopback tunnel the client's reconnect then failed to match 127.0.0.2 to a network interface and dropped every outstanding write, failing the backup with `BACKUP_FAILED_DISCONNECTED_NETWORK`. The appliance now turns multichannel off, and `tmbox doctor --fix` turns it off on appliances built earlier, when no backup is running ([#17](https://github.com/lab22poland/tmbox/issues/17)).
@@ -60,7 +62,8 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
-[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/lab22poland/tmbox/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/lab22poland/tmbox/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/lab22poland/tmbox/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/lab22poland/tmbox/releases/tag/v0.1.0
