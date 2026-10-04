@@ -132,9 +132,11 @@ public address, whether the appliance is locked, the ZFS pool's health, the
 Storage Box mount, the loop device, Samba, free space, stale Samba sessions,
 the Time Machine destination, Time Machine encryption and the last backup.
 
-With `--fix` it repairs the three faults that are safe to repair without
+With `--fix` it repairs the four faults that are safe to repair without
 asking: it re-pins the firewall to this Mac's current address, clears stale
-Samba sessions by restarting Samba, and restarts a tunnel that is down.
+Samba sessions by restarting Samba, restarts a tunnel that is down, and turns
+SMB multichannel off on an appliance built before 0.1.3 - only while no backup
+is running, since that restarts Samba too.
 Everything else is reported with the command that would fix it.
 
 Exit status, so it can run from cron or a monitoring job:
