@@ -55,7 +55,7 @@ firewall_report() {
     return 4
   fi
   local rule
-  for rule in ${(f)"$(json_get '.firewall.rules[] | "\(.protocol)/\(.port // "-") from \(.source_ips | join(", "))"' "$HTTP_BODY")"}; do
+  for rule in ${(f)"$(json_get '.firewall.rules[] | "\(.protocol)\(if .port then "/" + .port else "" end) from \(.source_ips | join(", "))"' "$HTTP_BODY")"}; do
     ui_item "$rule"
   done
   ui_blank
