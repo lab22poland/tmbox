@@ -23,6 +23,7 @@ source "$TMBOX_ROOT/lib/hcloud.zsh"
 source "$TMBOX_ROOT/lib/hbox.zsh"
 source "$TMBOX_ROOT/lib/preflight.zsh"
 source "$TMBOX_ROOT/cmd/tunnel.zsh"
+source "$TMBOX_ROOT/cmd/transport.zsh"
 source "$TMBOX_ROOT/cmd/setup.zsh"
 
 ui_init --no-tty-ok

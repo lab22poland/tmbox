@@ -19,6 +19,7 @@ source "$TMBOX_ROOT/lib/sshx.zsh"
 source "$TMBOX_ROOT/lib/macos.zsh"
 source "$TMBOX_ROOT/lib/transport.zsh"
 source "$TMBOX_ROOT/cmd/tunnel.zsh"
+source "$TMBOX_ROOT/cmd/transport.zsh"
 
 ui_init --no-tty-ok
 

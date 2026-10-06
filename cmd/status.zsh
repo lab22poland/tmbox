@@ -151,6 +151,11 @@ status_encryption() {
 
 status_tunnel() {
   ui_blank
+  case "$(transport_kind)" in
+    wireguard) status_wireguard; return 0 ;;
+    tailscale) status_tailscale; return 0 ;;
+  esac
+
   if [[ ! -f "$TMBOX_TUNNEL_PLIST" ]]; then
     ui_warn "The tunnel is not installed."
     return 0
@@ -166,6 +171,35 @@ status_tunnel() {
     ui_bad "Tunnel down - the daemon is not holding the port."
     ui_say "Try: tmbox tunnel restart"
   fi
+}
+
+# status_wireguard - the same question through WireGuard (#22)
+status_wireguard() {
+  if smb_probe "$TMBOX_WG_APPLIANCE"; then
+    ui_ok "WireGuard up - the appliance's Samba answered."
+    return 0
+  fi
+  if [[ "$(state_get wireguard_client)" == app ]]; then
+    ui_bad "WireGuard down - nothing answers at ${TMBOX_WG_APPLIANCE}."
+    ui_say "Is the tmbox tunnel active in the WireGuard app? On-Demand keeps it up."
+  elif ! launchd_is_loaded "$TMBOX_WG_LABEL"; then
+    ui_bad "WireGuard down - the tunnel's daemon is not running."
+    ui_say "Try: tmbox tunnel restart"
+  else
+    ui_bad "WireGuard down - the tunnel is running but the appliance is not answering through it."
+    ui_say "The appliance may be off, locked, or unreachable. tmbox doctor says which."
+  fi
+}
+
+# status_tailscale - and through Tailscale
+status_tailscale() {
+  local ip; ip="$(state_get tailscale_ip)"
+  if [[ -n "$ip" ]] && smb_probe "$ip"; then
+    ui_ok "Tailscale up - the appliance's Samba answered."
+    return 0
+  fi
+  ui_bad "Tailscale down - nothing answers at ${ip:-the appliance's tailnet address}."
+  ui_say "Is Tailscale on, and on the tailnet the appliance joined? tmbox doctor checks both."
 }
 
 # --- the appliance ----------------------------------------------------------

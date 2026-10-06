@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The LaunchDaemon that keeps the WireGuard tunnel up (#22).
+
+  A template, like tunnel.plist: cmd/transport.zsh substitutes the @TOKENS@ and
+  validates the result with plutil before it is written.
+
+  **A daemon, not an agent**, for the first of tunnel.plist's two reasons: Time
+  Machine backs up whether or not anyone is logged in. The second - binding
+  port 445 - does not apply here, but creating a utun interface and addressing
+  it needs root all the same.
+
+  **Nothing secret is in here.** The arguments are two program paths, a
+  configuration path and two addresses. The private key is in that
+  configuration, next to this file's helper, at mode 0600.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@HELPER@</string>
+    <string>--wireguard-go</string>
+    <string>@WGGO@</string>
+    <string>--wg</string>
+    <string>@WG@</string>
+    <string>--conf</string>
+    <string>@CONF@</string>
+    <string>--address</string>
+    <string>@ADDRESS@</string>
+    <string>--peer</string>
+    <string>@PEER@</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!--
+    KeepAlive with no conditions, as for the SSH tunnel: there is no state in
+    which the backup path should be down. Unlike ssh, nothing here exits when
+    the network changes - WireGuard roams - so a restart means wireguard-go
+    itself died.
+  -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

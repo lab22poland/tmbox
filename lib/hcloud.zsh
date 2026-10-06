@@ -177,7 +177,7 @@ hc_ssh_key_delete() { hc DELETE "/ssh_keys/${1}" }
 
 # --- firewall ---------------------------------------------------------------
 
-# hc_firewall_rules <admin-cidr|any> [udp-port] - the whole rule set, as JSON
+# hc_firewall_rules <admin-cidr|any> [udp-ports] - the whole rule set, as JSON
 #
 # The resting state, and the whole of it. Inbound default is deny, so what is
 # absent matters as much as what is present:
@@ -209,12 +209,14 @@ hc_firewall_rules() {
   else
     sources="$(jq -cn --arg c "$cidr" '[$c]')"
   fi
+  # Space-separated, because while a transport is being switched both the old
+  # and the new one's ports are open: the old one carries the backups until
+  # Time Machine has been moved.
   jq -cn --argjson s "$sources" --arg u "$udp" '
     [ {direction:"in", protocol:"tcp",  port:"22", source_ips:$s, description:"administration and the restore forward"},
       {direction:"in", protocol:"icmp",            source_ips:$s, description:"reachability checks"} ]
-    + (if $u == "" then [] else
-        [ {direction:"in", protocol:"udp", port:$u, source_ips:["0.0.0.0/0","::/0"], description:"the backup tunnel (WireGuard or Tailscale)"} ]
-      end)'
+    + [ $u | split(" ")[] | select(. != "")
+        | {direction:"in", protocol:"udp", port:., source_ips:["0.0.0.0/0","::/0"], description:"the backup tunnel (WireGuard or Tailscale)"} ]'
 }
 
 # hc_firewall_create <name> <admin-cidr|any> [udp-port] - id

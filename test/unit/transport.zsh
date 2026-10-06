@@ -25,6 +25,7 @@ source "$TMBOX_ROOT/lib/hbox.zsh"
 source "$TMBOX_ROOT/lib/preflight.zsh"
 source "$TMBOX_ROOT/lib/uplink.zsh"
 source "$TMBOX_ROOT/cmd/tunnel.zsh"
+source "$TMBOX_ROOT/cmd/transport.zsh"
 source "$TMBOX_ROOT/cmd/setup.zsh"
 source "$TMBOX_ROOT/cmd/status.zsh"
 source "$TMBOX_ROOT/cmd/doctor.zsh"
@@ -203,4 +204,200 @@ test_doctor_only_warns_about_a_moved_address_when_backups_use_a_vpn() {
   state_set admin_cidr 198.51.100.1/32 >/dev/null 2>&1
   out="$(public_ipv4() { print -rn -- 198.51.100.2 }; doctor_check_reachability >/dev/null 2>&1; print -rn -- "$DOCTOR_FAILED $DOCTOR_WARNED")"
   assert_eq "1 0" "$out" "with the SSH tunnel, backups stop: a failure"
+}
+
+# --- WireGuard: what is written ----------------------------------------------
+
+_wg_state() {
+  _fresh
+  state_set transport wireguard server_ip 203.0.113.9 \
+            wireguard_appliance_pubkey "1leExBDnO/vCN1arhGYKO1YYzw4uhLeIQDDaPbJ9pls=" \
+            wireguard_mac_pubkey "7FDwh5y9qn418QqTUWXcvtc1mRhTAjAMnWQ/Q6PqAlY=" >/dev/null 2>&1
+  kc_set wireguard-key "kGc2Hc7Bn1V1z9mHq2b7c9d0e1f2a3b4c5d6e7f8g9A=" >/dev/null 2>&1
+}
+
+test_the_daemons_configuration_is_for_setconf() {
+  _wg_state
+  local conf; conf="$(wg_render_conf daemon)"
+  # `wg setconf` rejects wg-quick's Address line; the helper sets addresses.
+  assert_not_contains "$conf" "Address"
+  assert_contains "$conf" "Endpoint = 203.0.113.9:51820"
+  assert_contains "$conf" "AllowedIPs = ${TMBOX_WG_APPLIANCE}/32" "only the appliance is routed"
+  assert_contains "$conf" "PersistentKeepalive = 25" "or a hotspot's NAT forgets the tunnel"
+  assert_contains "$conf" "PublicKey = 1leExBDnO/vCN1arhGYKO1YYzw4uhLeIQDDaPbJ9pls="
+}
+
+test_the_apps_configuration_carries_this_macs_address() {
+  _wg_state
+  local conf; conf="$(wg_render_conf app)"
+  assert_contains "$conf" "Address = ${TMBOX_WG_MAC}/32"
+  assert_contains "$conf" "AllowedIPs = ${TMBOX_WG_APPLIANCE}/32"
+}
+
+test_no_configuration_without_a_key() {
+  _fresh
+  state_set wireguard_appliance_pubkey "1leExBDnO/vCN1arhGYKO1YYzw4uhLeIQDDaPbJ9pls=" >/dev/null 2>&1
+  assert_status 1 wg_render_conf daemon
+}
+
+test_the_wireguard_job_is_a_valid_plist_with_nothing_left_to_fill() {
+  _wg_state
+  local out="$TMBOX_STATE_DIR/wireguard.plist"
+  ( wg_tool() { print -rn -- "/opt/homebrew/bin/$1" }; wg_render_plist ) > "$out"
+  assert_status 0 plutil -lint -- "$out"
+  local body; body="$(cat -- "$out")"
+  local token
+  for token in @LABEL@ @HELPER@ @WGGO@ @WG@ @CONF@ @ADDRESS@ @PEER@ @LOG@; do
+    assert_not_contains "$body" "$token" "substituted ${token}"
+  done
+  assert_contains "$body" "/opt/homebrew/bin/wireguard-go"
+  assert_contains "$body" "${TMBOX_SYS_DIR}/wireguard.conf"
+  assert_not_contains "$body" "PrivateKey" "the key stays in the configuration file"
+}
+
+test_the_wireguard_helper_parses_and_refuses_what_it_cannot_run() {
+  assert_status 0 zsh -n "$TMBOX_ROOT/macos/tmbox-wireguard"
+  assert_status 78 zsh "$TMBOX_ROOT/macos/tmbox-wireguard" --address 10.209.77.2
+  assert_status 78 zsh "$TMBOX_ROOT/macos/tmbox-wireguard" --bogus
+}
+
+test_the_appliance_guard_admits_only_samba_ssh_and_ping() {
+  local src="$TMBOX_ROOT/appliance/transport.sh"
+  assert_status 0 bash -n "$src"
+  local guard; guard="$(awk '/^guard_write\(\) \{/,/^\}/' "$src")"
+  assert_contains "$guard" 'tcp dport { 22, 445 } accept'
+  assert_contains "$guard" 'ip saddr != ${peer} drop' "from the one peer only"
+  assert_contains "$guard" 'iifname "${dev}" drop' "and nothing else through the interface"
+  assert_not_contains "$guard" "policy drop" "the appliance's other interfaces are not its business"
+}
+
+test_the_tailscale_auth_key_never_reaches_a_command_line() {
+  local src="$TMBOX_ROOT/appliance/transport.sh"
+  local up; up="$(awk '/^tailscale_up\(\) \{/,/^\}/' "$src")"
+  assert_contains "$up" '--auth-key="file:${keyfile}"'
+  assert_contains "$up" 'cat > "$keyfile"' "it arrives on stdin"
+}
+
+test_the_appliance_tool_is_embedded_in_the_build() {
+  local build; build="$(cat "$TMBOX_ROOT/tools/build.zsh")"
+  assert_contains "$build" "embed_b64 TMBOX_TRANSPORT    appliance/transport.sh"
+  assert_contains "$build" "embed_b64 TMBOX_WG_BIN       macos/tmbox-wireguard"
+  assert_contains "$build" "embed_b64 TMBOX_WG_PLIST     macos/wireguard.plist"
+}
+
+# --- WireGuard: choosing it ---------------------------------------------------
+
+test_an_unattended_setup_that_does_not_say_gets_ssh() {
+  _fresh
+  local saved=$TMBOX_NONINTERACTIVE
+  TMBOX_NONINTERACTIVE=1
+  setup_ask_transport >/dev/null 2>&1
+  TMBOX_NONINTERACTIVE=$saved
+  assert_eq ssh "$(state_get transport)"
+}
+
+test_choosing_wireguard_records_it_and_its_client_before_anything_is_bought() {
+  _fresh
+  ans_set transport wireguard
+  ans_set wireguard-client app
+  setup_ask_transport >/dev/null 2>&1
+  assert_eq wireguard "$(state_get transport)"
+  assert_eq app "$(state_get wireguard_client)"
+  # Step 5 then opens the tunnel's port with the rest of the firewall.
+  assert_eq 51820 "$(transport_udp_port)"
+}
+
+test_an_existing_installation_is_not_asked() {
+  _fresh
+  state_set transport ssh >/dev/null 2>&1
+  ans_set transport wireguard
+  setup_ask_transport >/dev/null 2>&1
+  assert_eq ssh "$(state_get transport)" "decided once, at the first setup"
+}
+
+# --- switching ------------------------------------------------------------------
+
+test_a_switch_keeps_the_old_port_open_until_time_machine_has_moved() {
+  _fresh
+  state_set server_id 1 server_ip 203.0.113.9 firewall_id 77 admin_cidr any \
+            transport ssh destination_id ABC >/dev/null 2>&1
+  local log="${TMBOX_STATE_DIR}/switch"
+  (
+    tm_running() { return 1 }
+    hc_firewall_set_admin_cidr() { print -r -- "fw $3" >> "$log" }
+    transport_install() { print -r -- "install $1" >> "$log"; state_set transport_ready "$1" >/dev/null 2>&1 }
+    transport_repoint_destination() { print -r -- "repoint $(transport_url tm-x)" >> "$log" }
+    transport_remove() { print -r -- "remove $1" >> "$log" }
+    TMBOX_HCLOUD_TOKEN=x
+    kc_set hetzner-token x >/dev/null 2>&1
+    ans_set switch-transport yes
+    transport_switch wireguard >/dev/null 2>&1
+  )
+  assert_eq "fw 51820
+install wireguard
+repoint smb://tmuser@10.209.77.1/tm-x
+remove ssh
+fw 51820" "$(cat -- "$log")"
+  assert_eq wireguard "$(state_get transport)"
+}
+
+test_a_switch_that_cannot_move_time_machine_keeps_the_old_transport() {
+  _fresh
+  state_set server_id 1 server_ip 203.0.113.9 transport ssh destination_id ABC >/dev/null 2>&1
+  local log="${TMBOX_STATE_DIR}/switch"
+  (
+    tm_running() { return 1 }
+    transport_install() { print -r -- "install $1" >> "$log" }
+    transport_repoint_destination() { return 1 }
+    transport_remove() { print -r -- "remove $1" >> "$log" }
+    ans_set switch-transport yes
+    transport_switch wireguard >/dev/null 2>&1
+  )
+  assert_eq "install wireguard" "$(cat -- "$log")" "nothing is removed"
+  assert_eq ssh "$(state_get transport)" "and backups still go the old way"
+}
+
+test_a_switch_refuses_while_a_backup_runs() {
+  _fresh
+  state_set server_id 1 transport ssh destination_id ABC >/dev/null 2>&1
+  local rc=0
+  ( tm_running() { return 0 }; transport_switch wireguard >/dev/null 2>&1 ) || rc=$?
+  assert_eq 5 "$rc"
+}
+
+# --- doctor, the appliance's half ----------------------------------------------
+
+test_doctor_reads_the_appliances_tunnel_report() {
+  _fresh
+  state_set transport wireguard >/dev/null 2>&1
+  doctor_check_vpn_appliance "transport=wireguard up=yes guard=on handshake=12 ts_ip=-" >/dev/null 2>&1
+  assert_eq "0 0" "$DOCTOR_FAILED $DOCTOR_WARNED"
+
+  _fresh
+  state_set transport wireguard >/dev/null 2>&1
+  doctor_check_vpn_appliance "transport=wireguard up=yes guard=off handshake=12 ts_ip=-" >/dev/null 2>&1
+  assert_eq "1 0" "$DOCTOR_FAILED $DOCTOR_WARNED" "an unguarded tunnel is a failure"
+
+  _fresh
+  state_set transport wireguard >/dev/null 2>&1
+  doctor_check_vpn_appliance "transport=none up=no guard=off handshake=never ts_ip=-" >/dev/null 2>&1
+  assert_eq "1 0" "$DOCTOR_FAILED $DOCTOR_WARNED" "not up at all"
+
+  _fresh
+  state_set transport wireguard >/dev/null 2>&1
+  doctor_check_vpn_appliance "transport=wireguard up=yes guard=on handshake=900 ts_ip=-" >/dev/null 2>&1
+  assert_eq "0 1" "$DOCTOR_FAILED $DOCTOR_WARNED" "a stale handshake is worth knowing"
+}
+
+# --- host keys ------------------------------------------------------------------
+
+test_the_tunnel_address_is_pinned_to_the_same_host_key() {
+  _fresh
+  mkdir -p -- "${SSH_KNOWN_HOSTS:h}"
+  print -r -- "203.0.113.9 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyMaterialForTestsOnly000000000000" > "$SSH_KNOWN_HOSTS"
+  ssh_pin_alias 203.0.113.9 10.209.77.1
+  assert_contains "$(cat -- "$SSH_KNOWN_HOSTS")" "10.209.77.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyMaterialForTestsOnly000000000000"
+  ssh_pin_alias 203.0.113.9 10.209.77.1
+  assert_eq 2 "$(grep -c . "$SSH_KNOWN_HOSTS")" "and only once"
+  rm -f -- "$SSH_KNOWN_HOSTS"
 }
