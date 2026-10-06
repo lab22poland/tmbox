@@ -603,3 +603,23 @@ sleep 30' > "$slow"; chmod +x "$slow"
   assert_status 0 test $(( SECONDS - start )) -lt 10
   rm -f -- "$slow"
 }
+
+# --- the history across a switch ------------------------------------------------
+
+test_after_a_switch_the_last_backup_is_the_one_carried_over() {
+  # A new destination has no dates of its own until its first backup, though
+  # the history is all there; doctor said "no backup has completed yet".
+  _fresh
+  state_set destination_id NEW destination_carried_backup 2026-10-06-074916 >/dev/null 2>&1
+  local got rc=0
+  got="$(tm_latest_backup_for() { return 1 }; appliance_last_backup)" || rc=$?
+  assert_eq "3 2026-10-06-074916" "$rc $got"
+
+  rc=0
+  got="$(tm_latest_backup_for() { print -rn -- 2026-10-06-090000; return 0 }; appliance_last_backup)" || rc=$?
+  assert_eq "0 2026-10-06-090000" "$rc $got" "a backup through the new transport wins"
+
+  rc=0
+  got="$(tm_latest_backup_for() { return 2 }; appliance_last_backup)" || rc=$?
+  assert_eq 2 "$rc" "not readable stays not readable"
+}

@@ -817,6 +817,10 @@ transport_switch() {
     fi
   fi
 
+  # The last backup as Time Machine knows it now, before the destination is
+  # replaced and its dates go with it. See appliance_last_backup.
+  local carried; carried="$(tm_latest_backup_for "$dest" 2>/dev/null)" || carried=""
+
   if ! transport_repoint_destination; then
     # Put the record back: Time Machine still uses the old address, so the old
     # transport is the one that carries the backups.
@@ -826,6 +830,8 @@ transport_switch() {
     ui_say "$(transport_Name "$want") is set up but Time Machine was not moved to it; backups still go through $(transport_name "$have"). Fix what is said above and run this again."
     return 1
   fi
+
+  [[ -n "$carried" ]] && state_set destination_carried_backup "$carried"
 
   ui_spin_start "Removing $(transport_name "$have")"
   transport_remove "$have"

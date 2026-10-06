@@ -701,8 +701,11 @@ doctor_check_timemachine() {
   fi
 
   local latest rc=0
-  latest="$(tm_latest_backup_for "$(state_get destination_id)")" || rc=$?
-  if (( rc == 2 )); then
+  latest="$(appliance_last_backup)" || rc=$?
+  if (( rc == 3 )); then
+    doc_pass "Last backup: $(status_backup_age "$latest"), before the change of transport." \
+      "Time Machine has a new destination for the same share; its next backup continues this history."
+  elif (( rc == 2 )); then
     ui_item "Last backup: not checked - reading it needs Full Disk Access for $(fda_app_name)."
   elif [[ -z "$latest" ]]; then
     doc_warn "No backup to the appliance has completed yet."
