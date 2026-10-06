@@ -54,9 +54,11 @@ status_backup() {
   fi
 
   local latest rc=0
-  latest="$(tm_latest_backup_for "$dest")" || rc=$?
+  latest="$(appliance_last_backup)" || rc=$?
   if (( rc == 0 )) && [[ -n "$latest" ]]; then
     ui_kv "Last backup" "$(status_backup_age "$latest")"
+  elif (( rc == 3 )); then
+    ui_kv "Last backup" "$(status_backup_age "$latest"), before the change of transport"
   elif (( rc == 2 )); then
     ui_kv "Last backup" "not readable without Full Disk Access for $(fda_app_name)"
   else
@@ -91,6 +93,7 @@ status_backup_age() {
 
   local ago
   if   (( age < 90 ));    then ago="just now"
+  elif (( age < 120 ));   then ago="a minute ago"
   elif (( age < 5400 ));  then ago="$(( age / 60 )) minutes ago"
   elif (( age < 172800 )); then ago="$(( age / 3600 )) hours ago"
   else                         ago="$(( age / 86400 )) days ago"

@@ -194,6 +194,31 @@ smb_wait() {
   return 1
 }
 
+# --- the history across a switch --------------------------------------------
+
+# appliance_last_backup - the newest backup to the appliance, for status/doctor
+#
+# tm_latest_backup_for's answer, with one addition. Moving to another transport
+# gives Time Machine a new destination, and a new destination has no backup
+# dates of its own until its first backup - although the history is all there
+# and the next backup continues it. So `tmbox transport` records the last
+# backup from before the move, and until a backup lands through the new
+# transport that one is reported, with status 3 to say where it came from.
+appliance_last_backup() {
+  local out rc=0
+  out="$(tm_latest_backup_for "$(state_get destination_id)")" || rc=$?
+  if (( rc == 0 )) && [[ -n "$out" ]]; then
+    print -rn -- "$out"
+    return 0
+  fi
+  local carried; carried="$(state_get destination_carried_backup)"
+  if (( rc == 1 )) && [[ -n "$carried" ]]; then
+    print -rn -- "$carried"
+    return 3
+  fi
+  return $rc
+}
+
 # --- reaching the appliance for administration ------------------------------
 
 # appliance_host - where ssh should go to administer the appliance

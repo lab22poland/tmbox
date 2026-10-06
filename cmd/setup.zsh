@@ -1223,6 +1223,7 @@ setup_add_destination() {
   state_set destination_id "$id" destination_url "$url" \
             destination_server_id "$(state_get server_id)" \
             destination_pw_fp "$(setup_pw_fingerprint)"
+  state_unset destination_carried_backup
   ui_kv "Destination" "$id"
   return 0
 }
