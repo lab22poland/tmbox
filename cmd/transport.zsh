@@ -470,10 +470,277 @@ wg_kickstart() {
 }
 
 # --- Tailscale --------------------------------------------------------------
+#
+# The owner's own tailnet, joined by the appliance with an auth key the owner
+# makes in Tailscale's admin console. tmbox runs nothing on this Mac for it:
+# the Tailscale app does, and tmbox only reads its state. That is also the
+# transport's one real weakness, and the reason doctor names it - Tailscale is
+# on one tailnet at a time, so while the app is switched to another one the
+# appliance is out of reach and backups fail until it is switched back.
+#
+# Measured on Debian 13 with Tailscale 1.102.5: `tailscale up --auth-key`
+# takes "file:<path>", so the key never appears on a command line there.
+
+# The standalone package is Tailscale's own, signed by Tailscale's Developer ID
+# and notarised. The signature is checked before anything is installed: the
+# team id is Tailscale Inc.'s, read from the package on 2026-10-06.
+typeset -g TMBOX_TS_PKG_URL="https://pkgs.tailscale.com/stable/Tailscale-latest-macos.pkg"
+typeset -g TMBOX_TS_TEAM="W5364U7YZB"
+
+# ts_run <cli> <args...> - the Tailscale CLI, bounded to five seconds
+#
+# Measured in the Tart guest with the standalone app freshly installed and not
+# yet started: `Tailscale status --json` does not fail, it waits - for ten
+# minutes before that run was stopped, and presumably for ever. It ignores
+# SIGTERM too, and holds its end of the pipe open while it lives, so whatever
+# reads its output waits with it: a second later it gets SIGKILL. So do its
+# children - /usr/local/bin/tailscale is a shell script that runs the app's
+# binary, and the binary outliving the script kept the pipe open just the same.
+# macOS has no timeout(1), so the bound is made here.
+ts_run() {
+  local cli="$1"; shift
+  "$cli" "$@" &
+  local -i pid=$!
+  ( sleep 5
+    pkill -TERM -P $pid 2>/dev/null; kill -TERM $pid 2>/dev/null
+    sleep 1
+    pkill -KILL -P $pid 2>/dev/null; kill -KILL $pid 2>/dev/null ) &
+  local -i guard=$!
+  local -i rc=0
+  wait $pid || rc=$?
+  kill $guard 2>/dev/null
+  wait $guard 2>/dev/null
+  return $rc
+}
+
+# ts_cli - the Tailscale command on this Mac, or nothing
+#
+# Both macOS variants of the app carry the CLI inside the bundle; the open
+# source tailscaled installs a `tailscale` of its own.
+#
+# With more than one installed, the one whose daemon answers wins: an app that
+# was installed and never started, next to a tailscaled that runs, must not
+# make Tailscale look switched off.
+#
+# Decided once per run: probing a CLI that hangs costs its whole timeout.
+typeset -g TMBOX_TS_CLI=""
+ts_cli() {
+  [[ -n "$TMBOX_TS_CLI" ]] && { print -rn -- "$TMBOX_TS_CLI"; return 0 }
+  local c first=""
+  for c in /Applications/Tailscale.app/Contents/MacOS/Tailscale \
+           /opt/homebrew/bin/tailscale /usr/local/bin/tailscale; do
+    [[ -x "$c" ]] || continue
+    [[ -n "$first" ]] || first="$c"
+    if ts_run "$c" status --json 2>/dev/null | jq -e '.BackendState' >/dev/null 2>&1; then
+      TMBOX_TS_CLI="$c"
+      print -rn -- "$c"
+      return 0
+    fi
+  done
+  [[ -n "$first" ]] && { print -rn -- "$first"; return 0 }
+  return 1
+}
+
+# ts_status - `tailscale status --json`, or nothing
+ts_status() {
+  local cli; cli="$(ts_cli)" || return 1
+  ts_run "$cli" status --json 2>/dev/null
+}
+
+# ts_field <jq filter> [status-json] - one value from the status
+ts_field() {
+  local json="${2:-}"
+  [[ -n "$json" ]] || json="$(ts_status)" || return 1
+  json_get "$1" "$json"
+}
+
+ts_running() { [[ "$(ts_field '.BackendState')" == Running ]] }
+
+# ts_preflight - Tailscale on this Mac, running and logged in
+#
+# Called when Tailscale is chosen, before anything is bought. Offers to install
+# the standalone package when there is none, with the owner's agreement; the
+# app's own first run - the system extension, the VPN configuration and the
+# login - needs clicks that no script can make, so it waits for them.
+typeset -gi TMBOX_TS_CHECKED=0
+ts_preflight() {
+  (( TMBOX_TS_CHECKED )) && return 0
+  if ! ts_cli >/dev/null; then
+    ui_blank
+    ui_say "Tailscale is not installed on this Mac. tmbox can install the standalone app from Tailscale's own server (${TMBOX_TS_PKG_URL}), after checking that the package is signed by Tailscale and notarised by Apple."
+    ui_confirm INSTALL_TAILSCALE "Download and install Tailscale now?" "y" || {
+      ui_say "Nothing was installed. Install Tailscale from https://tailscale.com/download/mac and run this again."
+      return 1
+    }
+    ts_install_app || return 1
+  fi
+
+  local -i tries=0
+  while ! ts_running; do
+    (( tries++ ))
+    if (( TMBOX_NONINTERACTIVE )) || (( tries > 5 )); then
+      ui_bad "Tailscale is installed but not running and logged in."
+      ui_say "Open Tailscale, log in to the tailnet the appliance should join, and run this again."
+      return 1
+    fi
+    ui_blank
+    ui_say "Open Tailscale and log in to the tailnet the appliance should join. On its first start macOS asks you to allow its system extension and VPN configuration."
+    (( ! TMBOX_NONINTERACTIVE )) && open -a Tailscale 2>/dev/null
+    ui_pause "Press return once Tailscale shows you as connected"
+  done
+
+  local json; json="$(ts_status)"
+  local tailnet mine
+  tailnet="$(ts_field '.CurrentTailnet.Name' "$json")"
+  mine="$(ts_field '.Self.TailscaleIPs[] | select(test("^[0-9.]+$"))' "$json" | head -1)"
+  [[ -n "$mine" ]] || { ui_bad "Tailscale did not report an IPv4 address for this Mac."; return 1 }
+  state_set tailscale_tailnet "$tailnet" tailscale_mac_ip "$mine"
+  ui_ok "Tailscale is running on this Mac (${mine}, tailnet ${tailnet:-unknown})."
+  TMBOX_TS_CHECKED=1
+  return 0
+}
+
+# ts_install_app - the standalone package, verified, then installed
+ts_install_app() {
+  local stage
+  stage="$(mktemp -d "${TMPDIR:-/tmp}/tmbox-ts.XXXXXX")" || return 1
+  chmod 0700 "$stage" 2>/dev/null
+  local pkg="${stage}/Tailscale.pkg"
+
+  ui_spin_start "Downloading Tailscale"
+  if ! curl -fsSL --max-time 300 -o "$pkg" "$TMBOX_TS_PKG_URL"; then
+    ui_spin_stop bad "Could not download it"
+    rm -rf -- "$stage"
+    return 1
+  fi
+  ui_spin_stop ok "Downloaded"
+
+  # Not only "signed": signed by Tailscale, and notarised.
+  local sig; sig="$(pkgutil --check-signature "$pkg" 2>&1)" || sig=""
+  if [[ "$sig" != *"Developer ID Installer: Tailscale Inc. (${TMBOX_TS_TEAM})"* \
+     || "$sig" != *"trusted by the Apple notary service"* ]]; then
+    ui_bad "The package is not signed by Tailscale and notarised; it was not installed."
+    log_warn "pkgutil --check-signature: ${sig//$'\n'/$'\036'}"
+    rm -rf -- "$stage"
+    return 1
+  fi
+
+  priv_prime || { rm -rf -- "$stage"; return 1 }
+  ui_spin_start "Installing Tailscale"
+  if ! priv_run /usr/sbin/installer -pkg "$pkg" -target / >/dev/null 2>&1; then
+    ui_spin_stop bad "The installer failed"
+    rm -rf -- "$stage"
+    return 1
+  fi
+  rm -rf -- "$stage"
+  ui_spin_stop ok "Tailscale installed"
+  return 0
+}
+
+# ts_ask_authkey - the key the appliance joins with, asked for once
+ts_ask_authkey() {
+  if ! ans_has TAILSCALE_AUTHKEY; then
+    ui_blank
+    ui_say "The appliance joins your tailnet with an auth key, which you make in Tailscale's admin console. tmbox sends it to the appliance on standard input and stores it nowhere."
+    ui_item "Open https://login.tailscale.com/admin/settings/keys and choose Generate auth key."
+    ui_item "Leave it one-off (not reusable) and not ephemeral. Pre-approved, if your tailnet approves devices."
+    ui_item "Tagging it is optional. Without a tag, disable key expiry for the appliance in the Machines list afterwards, or it leaves the tailnet when the key expires; tmbox doctor will remind you."
+    ui_blank
+    (( ! TMBOX_NONINTERACTIVE )) && open "https://login.tailscale.com/admin/settings/keys" 2>/dev/null
+  fi
+  local key
+  local -i tries=0
+  while (( tries < 3 )); do
+    (( tries++ ))
+    key="${$(ui_ask_secret TAILSCALE_AUTHKEY "Paste the auth key")//[[:space:]]/}"
+    if [[ "$key" == tskey-* ]]; then
+      log_secret "$key"
+      print -rn -- "$key"
+      return 0
+    fi
+    ui_warn "A Tailscale auth key starts with tskey-."
+    ans_has TAILSCALE_AUTHKEY && break
+  done
+  return 1
+}
 
 ts_install() {
-  ui_bad "Tailscale is not available in this build."
-  return 1
+  local host="$1"
+  [[ -n "$host" ]] || { ui_bad "No appliance address is recorded."; return 1 }
+  ts_preflight || return 1
+
+  ui_spin_start "Installing Tailscale on the appliance"
+  if ! transport_send_tool "$host"; then
+    ui_spin_stop bad "Could not copy tmbox-transport to the appliance"
+    return 1
+  fi
+  local out
+  if ! out="$(ssh_run "$host" "$TMBOX_TRANSPORT_TOOL tailscale-install" 2>&1)"; then
+    ui_spin_stop bad "Could not install Tailscale on the appliance"
+    log_warn "tailscale-install: ${out}"
+    return 1
+  fi
+  ui_spin_stop ok "Tailscale installed on the appliance"
+
+  # Joined only once: an appliance already on the tailnet keeps its address,
+  # and a second auth key would make it a second machine.
+  local ip; ip="$(ts_appliance_ip "$host")"
+  if [[ -z "$ip" ]]; then
+    local key; key="$(ts_ask_authkey)" || { ui_bad "No auth key, so the appliance cannot join the tailnet."; return 1 }
+    ui_spin_start "Joining the appliance to your tailnet"
+    if ! ip="$(ssh_send_secret "$host" "$TMBOX_TRANSPORT_TOOL tailscale-up tmbox-$(state_get mac_name)" "$key" 2>/dev/null)" \
+       || [[ "$ip" != <->.<->.<->.<-> ]]; then
+      ui_spin_stop bad "The appliance could not join the tailnet"
+      ui_say "The key may be used, expired, or for a tailnet that needs devices approved. Make a new one and run this again."
+      return 1
+    fi
+    ui_spin_stop ok "The appliance joined as tmbox-$(state_get mac_name), at ${ip}"
+  fi
+  state_set tailscale_ip "$ip"
+
+  ui_spin_start "Guarding the appliance's tailnet interface"
+  if ! ssh_run "$host" "$TMBOX_TRANSPORT_TOOL tailscale-guard $(state_get tailscale_mac_ip)" >/dev/null 2>&1; then
+    ui_spin_stop bad "Could not set up the guard"
+    return 1
+  fi
+  ui_spin_stop ok "Only Samba, SSH and ping from this Mac get through"
+
+  ssh_pin_alias "$host" "$ip"
+
+  ui_spin_start "Waiting for Samba to answer through Tailscale"
+  if ! smb_wait "$ip" 60; then
+    ui_spin_stop bad "Nothing answers at ${ip}:445"
+    ui_say "If your tailnet has access rules, they have to let this Mac reach the appliance on port 445."
+    return 1
+  fi
+  ui_spin_stop ok "Samba answers through Tailscale"
+
+  state_set transport_ready tailscale
+  return 0
+}
+
+# ts_appliance_ip <host> - the appliance's tailnet address, if it has one
+ts_appliance_ip() {
+  local report; report="$(transport_remote_show "$1")" || return 0
+  local word
+  for word in ${=report}; do
+    [[ "$word" == ts_ip=<->.<->.<->.<-> ]] && { print -rn -- "${word#ts_ip=}"; return 0 }
+  done
+  return 0
+}
+
+# ts_peer <appliance-ip> [status-json] - the appliance as this Mac's Tailscale sees it
+#
+# "direct <addr>", "relay <region>" or "offline", for status and doctor.
+ts_peer() {
+  local ip="$1" json="${2:-}"
+  [[ -n "$json" ]] || json="$(ts_status)" || return 1
+  print -r -- "$json" | jq -er --arg ip "$ip" '
+    [.Peer[]? | select((.TailscaleIPs // []) | index($ip))][0]
+    | if . == null then empty
+      elif (.Online | not) then "offline"
+      elif (.CurAddr // "") != "" then "direct \(.CurAddr)"
+      else "relay \(.Relay // "unknown")" end' 2>/dev/null
 }
 
 # --- switching --------------------------------------------------------------
@@ -510,6 +777,13 @@ transport_switch() {
 
   http_init || ui_die "Could not create a private temporary directory."
 
+  # What this Mac needs for it, before anything on the appliance changes: a
+  # WireGuard client, or Tailscale running and logged in.
+  case "$want" in
+    wireguard) wg_choose_client >/dev/null ;;
+    tailscale) ts_preflight || { ui_ok "Nothing was changed."; return 1 } ;;
+  esac
+
   # The firewall first: the new transport's port has to be open before the
   # appliance can be reached through it - and the old one's stays open until
   # Time Machine has moved, because until then it carries the backups.
@@ -523,6 +797,7 @@ transport_switch() {
   if ! transport_install "$want"; then
     ui_blank
     ui_bad "$(transport_Name "$want") could not be set up; backups still go through $(transport_name "$have")."
+    [[ "$old_udp" != "$new_udp" ]] && transport_firewall_ports ${old_udp} >/dev/null 2>&1
     return 1
   fi
 
@@ -600,8 +875,12 @@ transport_repoint_destination() {
   # destinationinfo names a destination and its id, not its URL, so "already
   # there" is the recorded URL plus Time Machine still having the recorded id.
   local id; id="$(state_get destination_id)"
-  if [[ "$(state_get destination_url)" == "$url" && -n "$id" ]] \
-     && tm_destinations_plist 2>/dev/null | grep -q -- "$id"; then
+  #
+  # Captured, then matched: `| grep -q` under pipe_fail fails whenever grep
+  # finds its match and exits while tmutil is still writing, so a destination
+  # that was there read as missing and was replaced on every run.
+  local plist; plist="$(tm_destinations_plist 2>/dev/null)" || plist=""
+  if [[ "$(state_get destination_url)" == "$url" && -n "$id" && "$plist" == *"$id"* ]]; then
     return 0
   fi
 
@@ -633,7 +912,10 @@ transport_report() {
       fi
       ;;
     tailscale)
-      ui_kv "Address" "$(state_get tailscale_ip)"
+      ui_kv "Address" "$(state_get tailscale_ip) (this Mac is $(state_get tailscale_mac_ip))"
+      ui_kv "Tailnet" "$(state_get tailscale_tailnet)"
+      local peer; peer="$(ts_peer "$(state_get tailscale_ip)" 2>/dev/null)"
+      [[ -n "$peer" ]] && ui_kv "Path" "$peer"
       if smb_probe "$(state_get tailscale_ip)"; then
         ui_ok "Samba answers through Tailscale"
       else

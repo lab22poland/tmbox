@@ -402,6 +402,123 @@ test_the_tunnel_address_is_pinned_to_the_same_host_key() {
   rm -f -- "$SSH_KNOWN_HOSTS"
 }
 
+# --- Tailscale ------------------------------------------------------------------
+
+# The shape of `tailscale status --json`, trimmed to what tmbox reads.
+_ts_json() {
+  local tailnet="${1:-owner@example.com}" mine="${2:-100.64.0.2}" curaddr="${3-198.51.100.9:41641}" online="${4:-true}"
+  print -r -- '{"BackendState":"Running",
+    "Self":{"TailscaleIPs":["'"$mine"'","fd7a:115c:a1e0::2"]},
+    "CurrentTailnet":{"Name":"'"$tailnet"'"},
+    "Peer":{"nodekey:abc":{"HostName":"tmbox-studio","TailscaleIPs":["100.64.0.1","fd7a:115c:a1e0::1"],
+                           "Online":'"$online"',"CurAddr":"'"$curaddr"'","Relay":"fra"}}}'
+}
+
+_ts_state() {
+  _fresh
+  state_set transport tailscale server_ip 203.0.113.9 tailscale_ip 100.64.0.1 \
+            tailscale_mac_ip 100.64.0.2 tailscale_tailnet owner@example.com mac_name studio >/dev/null 2>&1
+}
+
+test_the_path_to_the_appliance_is_read_from_tailscale() {
+  assert_eq "direct 198.51.100.9:41641" "$(ts_peer 100.64.0.1 "$(_ts_json)")"
+  assert_eq "relay fra" "$(ts_peer 100.64.0.1 "$(_ts_json x 100.64.0.2 '')")"
+  assert_eq "offline"   "$(ts_peer 100.64.0.1 "$(_ts_json x 100.64.0.2 '' false)")"
+  assert_empty "$(ts_peer 100.64.0.99 "$(_ts_json)")" "an unknown peer is no answer"
+}
+
+test_doctor_names_another_tailnet_as_the_cause() {
+  _ts_state
+  local out
+  out="$(
+    ts_cli() { print -rn -- /bin/true }
+    ts_status() { _ts_json other@example.org }
+    smb_probe() { return 1 }
+    doctor_check_tailscale >/dev/null 2>&1
+    print -rn -- "$DOCTOR_FAILED"
+  )"
+  assert_eq 1 "$out" "one failure, and it is the tailnet - not the probe as well"
+  assert_contains "$(cat "$UI_LOG")" "other@example.org"
+}
+
+test_doctor_passes_a_working_direct_tailnet() {
+  _ts_state
+  local out
+  out="$(
+    ts_cli() { print -rn -- /bin/true }
+    ts_status() { _ts_json }
+    route() { print -r -- "   interface: utun5" }
+    smb_probe() { return 0 }
+    doctor_check_tailscale >/dev/null 2>&1
+    print -rn -- "$DOCTOR_FAILED $DOCTOR_WARNED"
+  )"
+  assert_eq "0 0" "$out"
+}
+
+test_doctor_fix_moves_the_guard_to_this_macs_new_address() {
+  _ts_state
+  local log="${TMBOX_STATE_DIR}/calls"
+  (
+    ts_cli() { print -rn -- /bin/true }
+    ts_status() { _ts_json owner@example.com 100.64.0.7 }
+    route() { print -r -- "   interface: utun5" }
+    smb_probe() { return 0 }
+    ssh_run() { print -r -- "$2" >> "$log" }
+    DOCTOR_FIX=1
+    doctor_check_tailscale >/dev/null 2>&1
+  )
+  assert_contains "$(cat -- "$log")" "tmbox-transport tailscale-guard 100.64.0.7"
+  assert_eq 100.64.0.7 "$(state_get tailscale_mac_ip)"
+}
+
+test_doctor_warns_about_an_expiring_appliance_key() {
+  _ts_state
+  doctor_check_vpn_appliance "transport=tailscale up=yes guard=on handshake=never ts_ip=100.64.0.1 ts_expiry=2027-04-04T10:00:00Z" >/dev/null 2>&1
+  assert_eq "0 1" "$DOCTOR_FAILED $DOCTOR_WARNED"
+  _ts_state
+  doctor_check_vpn_appliance "transport=tailscale up=yes guard=on handshake=never ts_ip=100.64.0.1 ts_expiry=-" >/dev/null 2>&1
+  assert_eq "0 0" "$DOCTOR_FAILED $DOCTOR_WARNED"
+}
+
+test_the_auth_key_is_a_secret_and_must_look_like_one() {
+  assert_status 0 ans_is_secret tailscale-authkey
+  _fresh
+  ans_set tailscale-authkey "not-a-key"
+  assert_status 1 ts_ask_authkey
+  ans_set tailscale-authkey "tskey-auth-kExample-0123456789abcdef"
+  assert_eq "tskey-auth-kExample-0123456789abcdef" "$(ts_ask_authkey 2>/dev/null)"
+}
+
+test_a_package_not_signed_by_tailscale_is_not_installed() {
+  _fresh
+  local log="${TMBOX_STATE_DIR}/calls"
+  (
+    curl() { : > "${@[-1]}"; return 0 }
+    pkgutil() { print -r -- "Status: signed by a developer certificate issued by Apple for distribution
+   Notarization: trusted by the Apple notary service
+    1. Developer ID Installer: Someone Else (ABCDE12345)" }
+    priv_prime() { return 0 }
+    priv_run() { print -r -- "$*" >> "$log" }
+    ts_install_app >/dev/null 2>&1
+  )
+  assert_empty "$(cat -- "$log" 2>/dev/null)" "the installer never ran"
+}
+
+test_a_package_signed_by_tailscale_is_installed() {
+  _fresh
+  local log="${TMBOX_STATE_DIR}/calls"
+  (
+    curl() { : > "${@[-1]}"; return 0 }
+    pkgutil() { print -r -- "Status: signed by a developer certificate issued by Apple for distribution
+   Notarization: trusted by the Apple notary service
+    1. Developer ID Installer: Tailscale Inc. (W5364U7YZB)" }
+    priv_prime() { return 0 }
+    priv_run() { print -r -- "$*" >> "$log" }
+    ts_install_app >/dev/null 2>&1
+  )
+  assert_contains "$(cat -- "$log")" "/usr/sbin/installer -pkg"
+}
+
 # --- sessions the forward kept open (#22) ---------------------------------------
 
 test_a_session_this_mac_no_longer_has_is_stale() {
@@ -456,4 +573,33 @@ test_the_smb_probe_bounds_the_connect_and_not_only_the_wait() {
   # before the tunnel was up hung for the kernel's 75 seconds.
   local body; body="$(awk '/^smb_probe\(\) \{/,/^\}/' "$TMBOX_ROOT/lib/transport.zsh")"
   assert_contains "$body" 'nc -G "$timeout" -w "$timeout"'
+}
+
+test_doctor_names_a_route_that_bypasses_tailscale() {
+  _ts_state
+  local out
+  out="$(
+    ts_cli() { print -rn -- /bin/true }
+    ts_status() { _ts_json }
+    route() { print -r -- "   interface: en0" }
+    smb_probe() { return 1 }
+    doctor_check_tailscale >/dev/null 2>&1
+    print -rn -- "$DOCTOR_FAILED"
+  )"
+  assert_eq 1 "$out" "the route is the one failure named"
+  assert_contains "$(cat "$UI_LOG")" "through en0"
+}
+
+test_a_tailscale_cli_that_hangs_is_given_up_on() {
+  # The standalone app, installed and not yet started, answers `status` by
+  # waiting for ever.
+  local slow="${TMBOX_STATE_DIR}/slow-tailscale"
+  # And ignores SIGTERM, holding the pipe open meanwhile.
+  print -r -- '#!/bin/sh
+trap "" TERM
+sleep 30' > "$slow"; chmod +x "$slow"
+  local -i start=$SECONDS
+  ts_run "$slow" status --json 2>/dev/null | cat >/dev/null
+  assert_status 0 test $(( SECONDS - start )) -lt 10
+  rm -f -- "$slow"
 }

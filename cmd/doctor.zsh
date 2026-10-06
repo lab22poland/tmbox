@@ -179,12 +179,82 @@ doctor_check_wireguard() {
 }
 
 # doctor_check_tailscale - this Mac's half of the Tailscale transport (#22)
+#
+# In the order that names the cause rather than the symptom: not installed,
+# not running, on another tailnet, this Mac's address changed under the guard,
+# and only then whether SMB answers - which it will not, for any of those.
 doctor_check_tailscale() {
   local ip; ip="$(state_get tailscale_ip)"
+  if ! ts_cli >/dev/null; then
+    doc_fail "Tailscale is not installed on this Mac." "Install it from https://tailscale.com/download/mac, or: tmbox transport tailscale"
+    return 0
+  fi
+  local json; json="$(ts_status)" || json=""
+  local state; state="$(ts_field '.BackendState' "$json")"
+  if [[ "$state" != Running ]]; then
+    doc_fail "Tailscale is not connected on this Mac (${state:-not running})." "Open Tailscale and connect. Backups fail until it is."
+    return 0
+  fi
+  doc_pass "Tailscale is connected."
+
+  local want have
+  want="$(state_get tailscale_tailnet)"
+  have="$(ts_field '.CurrentTailnet.Name' "$json")"
+  if [[ -n "$want" && -n "$have" && "$want" != "$have" ]]; then
+    doc_fail "Tailscale is on the tailnet ${have}, and the appliance is on ${want}." \
+      "Tailscale is on one tailnet at a time. Switch back to ${want} in the Tailscale menu; backups fail until then."
+    return 0
+  fi
+
+  # The guard on the appliance admits one tailnet address. A Mac that logged
+  # in again, or reinstalled Tailscale, can come back with another.
+  local mine recorded
+  mine="$(ts_field '.Self.TailscaleIPs[] | select(test("^[0-9.]+$"))' "$json" | head -1)"
+  recorded="$(state_get tailscale_mac_ip)"
+  if [[ -n "$mine" && -n "$recorded" && "$mine" != "$recorded" ]]; then
+    if (( DOCTOR_FIX )) && ssh_run "$(state_get server_ip)" "$TMBOX_TRANSPORT_TOOL tailscale-guard ${mine}" >/dev/null 2>&1; then
+      state_set tailscale_mac_ip "$mine"
+      doc_pass "This Mac's tailnet address changed to ${mine}; the appliance's guard now admits it."
+    else
+      doc_fail "This Mac's tailnet address changed from ${recorded} to ${mine}, and the appliance admits only the old one." \
+        "Fix: tmbox doctor --fix"
+      return 0
+    fi
+  fi
+
+  # The trap the WireGuard tests found: a connection attempted while the
+  # tunnel was down leaves a route to the appliance cloned from the default
+  # one, and while it stands every connection leaves through Wi-Fi. With
+  # Tailscale 1.102 it did not happen in the Tart guest - macOS dropped the
+  # clone the moment Tailscale's own 100.64.0.0/10 came back - so this is a
+  # cheap check for a case not seen, not a fix for one that was.
+  local via; via="$(route -n get "$ip" 2>/dev/null | awk '/interface:/ {print $2}')"
+  if [[ -n "$via" && "$via" != utun* ]]; then
+    if (( DOCTOR_FIX )) && priv_prime >/dev/null 2>&1 \
+       && priv_run route -q -n delete -inet -host "$ip" >/dev/null 2>&1 \
+       && [[ "$(route -n get "$ip" 2>/dev/null | awk '/interface:/ {print $2}')" == utun* ]]; then
+      doc_pass "A stale route sent the appliance's address through ${via}; it is removed."
+    else
+      doc_fail "macOS routes the appliance's tailnet address through ${via}, not through Tailscale." \
+        "A route left over from a backup tried while Tailscale was off. Fix: tmbox doctor --fix, or: sudo route -n delete -host ${ip}"
+      return 0
+    fi
+  fi
+
+  local peer; peer="$(ts_peer "$ip" "$json")"
+  case "$peer" in
+    direct*) doc_pass "The appliance is reached directly (${peer#direct })." ;;
+    relay*)  doc_warn "The appliance is reached through Tailscale's relay (${peer#relay })." \
+               "That works, but more slowly. A direct path needs udp/${TMBOX_TS_PORT} open to the appliance, which tmbox's firewall does; the network this Mac is on may be what prevents it." ;;
+    offline) doc_fail "Tailscale reports the appliance as offline." "It may be off, or locked out of the tailnet - an expired key, for one. The appliance's own report is below." ;;
+    "")      ;;
+  esac
+
   if [[ -n "$ip" ]] && smb_probe "$ip"; then
     doc_pass "Samba answers through Tailscale." "An SMB2 negotiate was sent to ${ip} and answered."
   else
-    doc_fail "Nothing answers through Tailscale at ${ip:-the appliance's address}."
+    doc_fail "Nothing answers through Tailscale at ${ip:-the appliance's address}." \
+      "If your tailnet has access rules, they have to let this Mac reach the appliance on port 445."
   fi
 }
 
@@ -382,6 +452,16 @@ doctor_check_vpn_appliance() {
   else
     doc_fail "The guard on the appliance's tunnel interface is off." \
       "Everything on the appliance is reachable through the tunnel. Fix: tmbox transport ${kind}"
+  fi
+
+  if [[ "$kind" == tailscale ]]; then
+    local exp="${r[ts_expiry]:--}"
+    if [[ "$exp" != - ]]; then
+      doc_warn "The appliance's Tailscale key expires (${exp})." \
+        "When it does, the appliance leaves the tailnet and backups stop. In the admin console, Machines: disable key expiry for tmbox-$(state_get mac_name)."
+    else
+      doc_pass "The appliance's Tailscale key does not expire."
+    fi
   fi
 
   if [[ "$kind" == wireguard ]]; then

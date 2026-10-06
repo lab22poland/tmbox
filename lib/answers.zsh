@@ -60,6 +60,7 @@ typeset -ga TMBOX_SETUP_FLAGS=(
   "admin-cidr:Who may reach the appliance's SSH: auto (this connection only) or any"
   "transport:How backups reach the appliance: ssh, wireguard or tailscale"
   "wireguard-client:WireGuard on this Mac: brew (tmbox runs it) or app (the App Store app)"
+  "tailscale-authkey:The auth key the appliance joins your tailnet with"
   "zfs-passphrase:The appliance's dataset passphrase, for 'tmbox unlock'"
 )
 
@@ -198,7 +199,7 @@ ans_require() {
 ans_is_secret() {
   local key; key="$(ans_norm "$1")"
   case "$key" in
-    *PASSWORD*|*PASSPHRASE*|*TOKEN*|*SECRET*|*PRIVATE_KEY*) return 0 ;;
+    *PASSWORD*|*PASSPHRASE*|*TOKEN*|*SECRET*|*PRIVATE_KEY*|*AUTHKEY*|*AUTH_KEY*) return 0 ;;
   esac
   return 1
 }

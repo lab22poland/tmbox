@@ -121,7 +121,10 @@ destroy_tm_destination() {
   [[ -n "$id" ]] || id="$(tm_destination_id "tm-$(state_get mac_name)")" || id=""
   [[ -n "$id" ]] || return 0
   # Only what Time Machine still has. destinationinfo needs no Full Disk Access.
-  tm_destinations_plist 2>/dev/null | grep -q -- "$id" || return 0
+  # Captured rather than piped to grep -q, which under pipe_fail can fail on a
+  # match: tmutil, still writing, gets SIGPIPE when grep exits (#22).
+  local plist; plist="$(tm_destinations_plist 2>/dev/null)" || plist=""
+  [[ "$plist" == *"$id"* ]] || return 0
 
   # removedestination does need it, and without it fails with the same exit
   # code as everything else. Not a reason to stop a teardown: say what to run.
@@ -160,6 +163,10 @@ destroy_quiesce_appliance() {
   # Reverse order of assembly: stop serving, unmount, export the pool, detach
   # the loop device, unmount the Storage Box. The container file on the box is
   # about to outlive the machine writing to it, so it has to be closed properly.
+  # A Tailscale appliance leaves the tailnet first (#22), so the owner's admin
+  # console is not left with a machine that will never come back.
+  ssh_run "$ip" '[ -x /usr/local/sbin/tmbox-transport ] && /usr/local/sbin/tmbox-transport tailscale-down' >/dev/null 2>&1
+
   ssh_run "$ip" 'set -e
     systemctl stop smbd 2>/dev/null || true
     if command -v zpool >/dev/null 2>&1; then

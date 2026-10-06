@@ -195,7 +195,20 @@ status_wireguard() {
 status_tailscale() {
   local ip; ip="$(state_get tailscale_ip)"
   if [[ -n "$ip" ]] && smb_probe "$ip"; then
-    ui_ok "Tailscale up - the appliance's Samba answered."
+    local peer; peer="$(ts_peer "$ip" 2>/dev/null)"
+    case "$peer" in
+      direct*) ui_ok "Tailscale up, direct - the appliance's Samba answered." ;;
+      relay*)  ui_ok "Tailscale up, through a relay (${peer#relay }) - the appliance's Samba answered." ;;
+      *)       ui_ok "Tailscale up - the appliance's Samba answered." ;;
+    esac
+    return 0
+  fi
+  local want have
+  want="$(state_get tailscale_tailnet)"
+  have="$(ts_field '.CurrentTailnet.Name' 2>/dev/null)"
+  if [[ -n "$want" && -n "$have" && "$want" != "$have" ]]; then
+    ui_bad "Tailscale is on the tailnet ${have}; the appliance is on ${want}."
+    ui_say "Switch back in the Tailscale menu. Backups fail until then."
     return 0
   fi
   ui_bad "Tailscale down - nothing answers at ${ip:-the appliance's tailnet address}."

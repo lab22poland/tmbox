@@ -69,7 +69,7 @@ COMMANDS
     status           What exists, what it costs, when it last backed up
     doctor           Check every assertion, and say which restore paths work
     tunnel           start | stop | status - the tunnel carrying SMB
-    transport        [ssh | wireguard] - how backups reach the appliance
+    transport        [ssh | wireguard | tailscale] - how backups reach the appliance
     unlock           Send the ZFS key so the appliance can serve the share
     limit            [Mbit/s | auto | off] - cap how much upload backups take
     firewall         [any | pin] - who may reach the appliance's SSH
