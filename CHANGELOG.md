@@ -6,6 +6,8 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-06
+
 ### Fixed
 
 - After `tmbox transport` moved Time Machine to a new address, `status` and `doctor` reported no backup until the next one - "No backup to the appliance has completed yet" - although the history was all there and continued. They now report the last backup from before the change, marked as such ([#22](https://github.com/lab22poland/tmbox/issues/22)).
@@ -87,7 +89,8 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
-[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/lab22poland/tmbox/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/lab22poland/tmbox/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/lab22poland/tmbox/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/lab22poland/tmbox/compare/v0.1.2...v0.1.3
