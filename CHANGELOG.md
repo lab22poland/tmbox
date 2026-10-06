@@ -8,7 +8,14 @@ All notable changes to tmbox are recorded here. The format follows
 
 ### Added
 
+- WireGuard as a second transport, for a Mac whose address keeps changing - a phone's hotspot, LTE, 5G. The SSH tunnel is one TCP connection tied to the Mac's address and ends with it, taking a running backup along; WireGuard follows the Mac to its new address. Setup asks which to use (`--transport`). The Mac's side is `wireguard-go` from Homebrew, installed with your agreement and run by a LaunchDaemon of tmbox's own, or the App Store app (`--wireguard-client`). On the appliance, an nftables guard lets only Samba, SSH and ping through the tunnel, from this Mac only; the firewall opens udp/51820. `status`, `doctor`, `tmbox tunnel` and `destroy` handle it, and administration goes through the tunnel while it is up ([#22](https://github.com/lab22poland/tmbox/issues/22)).
+- `tmbox transport [ssh | wireguard]` switches an existing installation without touching its backups: the new transport is set up and checked, Time Machine is pointed at the same share through it and continues the same history, and only then is the old one removed ([#22](https://github.com/lab22poland/tmbox/issues/22)).
 - `tmbox firewall [any | pin]` and `--admin-cidr any`: the appliance's SSH can be opened to every address instead of only this Mac's, for connections whose address keeps changing - a phone's hotspot, LTE, 5G - where the pin locked the Mac out after every change. Only tmbox's own keys can log in, and SMB stays closed to the internet. `doctor` reports an open firewall as such and no longer re-pins it ([#22](https://github.com/lab22poland/tmbox/issues/22)).
+
+### Fixed
+
+- `doctor` found stale Samba sessions only when their socket was gone. Through the SSH tunnel the socket is sshd's and can stay open after the Mac has closed its own, holding the backup image: the next backup failed with "Resource busy", and Samba's `deadtime` never reaps a session with open files. A session is now also stale when this Mac has no connection to the share at all and no backup is running, and `--fix` clears it ([#22](https://github.com/lab22poland/tmbox/issues/22)).
+- The probe that checks Samba answers bounds its connection attempt too. On macOS `nc -w` does not, so a probe that could not connect waited about 75 seconds ([#22](https://github.com/lab22poland/tmbox/issues/22)).
 
 ## [0.1.4] - 2026-10-04
 

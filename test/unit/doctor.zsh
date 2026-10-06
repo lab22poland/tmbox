@@ -76,7 +76,7 @@ test_the_remote_script_asks_for_exactly_the_fields_that_are_read() {
   state_set mac_name "livetest" >/dev/null 2>&1
   local script; script="$(doctor_remote_script)"
   local -i lines; lines="$(print -r -- "$script" | grep -c .)"
-  assert_eq 12 "$lines" "twelve facts are read, so twelve must be asked for"
+  assert_eq 13 "$lines" "thirteen facts are read, so thirteen must be asked for"
 }
 
 test_the_usage_line_ends_in_a_newline() {

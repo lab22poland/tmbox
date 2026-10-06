@@ -516,3 +516,59 @@ test_a_package_signed_by_tailscale_is_installed() {
   )
   assert_contains "$(cat -- "$log")" "/usr/sbin/installer -pkg"
 }
+
+# --- sessions the forward kept open (#22) ---------------------------------------
+
+test_a_session_this_mac_no_longer_has_is_stale() {
+  # sshd keeps its end of a forward open after the Mac has closed its own, so
+  # Samba sees a socket and the old test called the session healthy.
+  _fresh
+  local out
+  out="$(
+    smb_client_connections() { print -rn -- 0 }
+    tm_running() { return 1 }
+    doctor_check_stale_sessions 203.0.113.9 0 1 >/dev/null 2>&1
+    print -rn -- "$DOCTOR_WARNED"
+  )"
+  assert_eq 1 "$out"
+}
+
+test_a_session_this_mac_still_has_is_not_stale() {
+  _fresh
+  local out
+  out="$(
+    smb_client_connections() { print -rn -- 2 }
+    tm_running() { return 1 }
+    doctor_check_stale_sessions 203.0.113.9 0 1 >/dev/null 2>&1
+    print -rn -- "$DOCTOR_WARNED"
+  )"
+  assert_eq 0 "$out"
+}
+
+test_nothing_is_called_stale_while_a_backup_runs() {
+  _fresh
+  local out
+  out="$(
+    smb_client_connections() { print -rn -- 0 }
+    tm_running() { return 0 }
+    doctor_check_stale_sessions 203.0.113.9 0 1 >/dev/null 2>&1
+    print -rn -- "$DOCTOR_WARNED"
+  )"
+  assert_eq 0 "$out"
+}
+
+test_the_wireguard_helper_routes_the_appliance_through_the_tunnel_itself() {
+  # A route cloned from the default one, left by a connection attempted while
+  # the tunnel was down, sent everything into the tunnel from the wrong source
+  # address for over a minute; the helper replaces it with its own.
+  local src; src="$(cat "$TMBOX_ROOT/macos/tmbox-wireguard")"
+  assert_contains "$src" 'route -q -n delete -inet -host "$W_PEER"'
+  assert_contains "$src" 'route -q -n add -inet -host "$W_PEER" -interface "$IFN"'
+}
+
+test_the_smb_probe_bounds_the_connect_and_not_only_the_wait() {
+  # macOS nc's -w does not bound a connect; -G does. Without it a probe sent
+  # before the tunnel was up hung for the kernel's 75 seconds.
+  local body; body="$(awk '/^smb_probe\(\) \{/,/^\}/' "$TMBOX_ROOT/lib/transport.zsh")"
+  assert_contains "$body" 'nc -G "$timeout" -w "$timeout"'
+}

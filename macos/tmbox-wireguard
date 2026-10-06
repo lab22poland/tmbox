@@ -85,6 +85,17 @@ ifconfig "$IFN" inet "$W_ADDR" "$W_PEER" alias || { kill -TERM $GO_PID 2>/dev/nu
 [[ -n "$W_MTU" ]] && ifconfig "$IFN" mtu "$W_MTU"
 ifconfig "$IFN" up
 
+# And then that route again, explicitly. Anything that tried to reach the
+# appliance's tunnel address while the tunnel was down - a probe, a backup -
+# left behind a route cloned from the default one, through Wi-Fi or Ethernet.
+# macOS keeps choosing it, with that interface's source address, until it
+# expires: measured in the Tart guest as 77 seconds in which every connection
+# went into the tunnel from the wrong address and the appliance's guard,
+# rightly, dropped it. `netstat -rn` does not show such a route; -a does.
+route -q -n delete -inet -host "$W_PEER" >/dev/null 2>&1
+route -q -n add -inet -host "$W_PEER" -interface "$IFN" >/dev/null 2>&1 \
+  || print -u2 -r -- "${SELF}: could not add the route to ${W_PEER} via ${IFN}"
+
 print -r -- "${SELF}: up on ${IFN}, ${W_ADDR} -> ${W_PEER}"
 
 wait $GO_PID
