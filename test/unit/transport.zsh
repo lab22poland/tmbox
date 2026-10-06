@@ -589,3 +589,17 @@ test_doctor_names_a_route_that_bypasses_tailscale() {
   assert_eq 1 "$out" "the route is the one failure named"
   assert_contains "$(cat "$UI_LOG")" "through en0"
 }
+
+test_a_tailscale_cli_that_hangs_is_given_up_on() {
+  # The standalone app, installed and not yet started, answers `status` by
+  # waiting for ever.
+  local slow="${TMBOX_STATE_DIR}/slow-tailscale"
+  # And ignores SIGTERM, holding the pipe open meanwhile.
+  print -r -- '#!/bin/sh
+trap "" TERM
+sleep 30' > "$slow"; chmod +x "$slow"
+  local -i start=$SECONDS
+  ts_run "$slow" status --json 2>/dev/null | cat >/dev/null
+  assert_status 0 test $(( SECONDS - start )) -lt 10
+  rm -f -- "$slow"
+}

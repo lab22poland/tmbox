@@ -487,23 +487,59 @@ wg_kickstart() {
 typeset -g TMBOX_TS_PKG_URL="https://pkgs.tailscale.com/stable/Tailscale-latest-macos.pkg"
 typeset -g TMBOX_TS_TEAM="W5364U7YZB"
 
+# ts_run <cli> <args...> - the Tailscale CLI, bounded to five seconds
+#
+# Measured in the Tart guest with the standalone app freshly installed and not
+# yet started: `Tailscale status --json` does not fail, it waits - for ten
+# minutes before that run was stopped, and presumably for ever. It ignores
+# SIGTERM too, and holds its end of the pipe open while it lives, so whatever
+# reads its output waits with it: a second later it gets SIGKILL. So do its
+# children - /usr/local/bin/tailscale is a shell script that runs the app's
+# binary, and the binary outliving the script kept the pipe open just the same.
+# macOS has no timeout(1), so the bound is made here.
+ts_run() {
+  local cli="$1"; shift
+  "$cli" "$@" &
+  local -i pid=$!
+  ( sleep 5
+    pkill -TERM -P $pid 2>/dev/null; kill -TERM $pid 2>/dev/null
+    sleep 1
+    pkill -KILL -P $pid 2>/dev/null; kill -KILL $pid 2>/dev/null ) &
+  local -i guard=$!
+  local -i rc=0
+  wait $pid || rc=$?
+  kill $guard 2>/dev/null
+  wait $guard 2>/dev/null
+  return $rc
+}
+
 # ts_cli - the Tailscale command on this Mac, or nothing
 #
 # Both macOS variants of the app carry the CLI inside the bundle; the open
 # source tailscaled installs a `tailscale` of its own.
+#
+# With more than one installed, the one whose daemon answers wins: an app that
+# was installed and never started, next to a tailscaled that runs, must not
+# make Tailscale look switched off.
 ts_cli() {
-  local c
+  local c first=""
   for c in /Applications/Tailscale.app/Contents/MacOS/Tailscale \
            /opt/homebrew/bin/tailscale /usr/local/bin/tailscale; do
-    [[ -x "$c" ]] && { print -rn -- "$c"; return 0 }
+    [[ -x "$c" ]] || continue
+    [[ -n "$first" ]] || first="$c"
+    if ts_run "$c" status --json 2>/dev/null | jq -e '.BackendState' >/dev/null 2>&1; then
+      print -rn -- "$c"
+      return 0
+    fi
   done
+  [[ -n "$first" ]] && { print -rn -- "$first"; return 0 }
   return 1
 }
 
 # ts_status - `tailscale status --json`, or nothing
 ts_status() {
   local cli; cli="$(ts_cli)" || return 1
-  "$cli" status --json 2>/dev/null
+  ts_run "$cli" status --json 2>/dev/null
 }
 
 # ts_field <jq filter> [status-json] - one value from the status
@@ -733,6 +769,13 @@ transport_switch() {
 
   http_init || ui_die "Could not create a private temporary directory."
 
+  # What this Mac needs for it, before anything on the appliance changes: a
+  # WireGuard client, or Tailscale running and logged in.
+  case "$want" in
+    wireguard) wg_choose_client >/dev/null ;;
+    tailscale) ts_preflight || { ui_ok "Nothing was changed."; return 1 } ;;
+  esac
+
   # The firewall first: the new transport's port has to be open before the
   # appliance can be reached through it - and the old one's stays open until
   # Time Machine has moved, because until then it carries the backups.
@@ -746,6 +789,7 @@ transport_switch() {
   if ! transport_install "$want"; then
     ui_blank
     ui_bad "$(transport_Name "$want") could not be set up; backups still go through $(transport_name "$have")."
+    [[ "$old_udp" != "$new_udp" ]] && transport_firewall_ports ${old_udp} >/dev/null 2>&1
     return 1
   fi
 
