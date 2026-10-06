@@ -89,6 +89,11 @@ doctor_check_mac() {
   ui_rule "This Mac"
   ui_blank
 
+  case "$(transport_kind)" in
+    wireguard) doctor_check_wireguard; return 0 ;;
+    tailscale) doctor_check_tailscale; return 0 ;;
+  esac
+
   if [[ -f "$TMBOX_TUNNEL_PLIST" ]]; then
     doc_pass "The tunnel is installed."
   else
@@ -127,6 +132,60 @@ doctor_check_mac() {
     || doc_warn "The ${TM_LOOPBACK_ALIAS} loopback alias is missing." "The tunnel daemon adds it at start."
 
   doctor_check_tunnel_stability
+}
+
+# doctor_check_wireguard - this Mac's half of the WireGuard transport (#22)
+doctor_check_wireguard() {
+  local client; client="$(state_get wireguard_client)"
+
+  if [[ "$client" == app ]]; then
+    if smb_probe "$TMBOX_WG_APPLIANCE"; then
+      doc_pass "Samba answers through WireGuard." "An SMB2 negotiate was sent to ${TMBOX_WG_APPLIANCE} and answered."
+    else
+      doc_fail "Nothing answers through WireGuard at ${TMBOX_WG_APPLIANCE}." \
+        "Activate the tmbox tunnel in the WireGuard app, and tick On-Demand in it so that it stays up."
+    fi
+    return 0
+  fi
+
+  if wg_tools_present; then
+    doc_pass "wireguard-go and wg are installed."
+  else
+    doc_fail "WireGuard is not installed on this Mac." "Fix: brew install wireguard-tools, then tmbox tunnel restart"
+  fi
+
+  if [[ -f "$TMBOX_WG_PLIST" ]]; then
+    doc_pass "The WireGuard tunnel is installed."
+  else
+    doc_fail "The WireGuard tunnel is not installed." "Fix: tmbox tunnel install"
+    return 0
+  fi
+
+  if smb_probe "$TMBOX_WG_APPLIANCE"; then
+    doc_pass "Samba answers through WireGuard." "An SMB2 negotiate was sent to ${TMBOX_WG_APPLIANCE} and answered."
+  elif (( DOCTOR_FIX )); then
+    ui_item "Restarting the WireGuard tunnel…"
+    if wg_kickstart >/dev/null 2>&1; then
+      doc_pass "WireGuard was down; restarting it fixed it."
+    else
+      doc_fail "WireGuard is down and restarting it did not help." "See: sudo tail -20 ${TMBOX_WG_LOG}"
+    fi
+  elif ! launchd_is_loaded "$TMBOX_WG_LABEL"; then
+    doc_fail "launchd does not have the WireGuard tunnel loaded." "Fix: tmbox doctor --fix, or tmbox tunnel restart"
+  else
+    doc_fail "The WireGuard tunnel is running, but nothing answers through it." \
+             "The appliance's side is checked below."
+  fi
+}
+
+# doctor_check_tailscale - this Mac's half of the Tailscale transport (#22)
+doctor_check_tailscale() {
+  local ip; ip="$(state_get tailscale_ip)"
+  if [[ -n "$ip" ]] && smb_probe "$ip"; then
+    doc_pass "Samba answers through Tailscale." "An SMB2 negotiate was sent to ${ip} and answered."
+  else
+    doc_fail "Nothing answers through Tailscale at ${ip:-the appliance's address}."
+  fi
 }
 
 # doctor_check_tunnel_stability - has the tunnel been dying and restarting?
@@ -251,7 +310,7 @@ doctor_check_appliance() {
   local -a f=( "${(@f)out}" )
   local keystatus="${f[1]}" pool="${f[2]}" mountopts="${f[3]}" dio="${f[4]}"
   local smbd="${f[5]}" used="${f[6]}" quota="${f[7]}" pct="${f[8]}" mc="${f[9]}" sessions="${f[10]}"
-  local shaper="${f[11]:-}"
+  local shaper="${f[11]:-}" vpn="${f[12]:-}" all_sessions="${f[13]:-}"
 
   # Locked is not broken, and the difference matters: it is the resting state
   # after any reboot, and it has its own one-word fix.
@@ -295,8 +354,47 @@ doctor_check_appliance() {
 
   doctor_check_space "$used" "$quota" "$pct"
   doctor_check_multichannel "$host" "$mc"
-  doctor_check_stale_sessions "$host" "$sessions"
+  doctor_check_stale_sessions "$host" "$sessions" "$all_sessions"
   doctor_check_uplink "$host" "$shaper"
+  [[ "$(transport_kind)" != ssh ]] && doctor_check_vpn_appliance "$vpn"
+  return 0
+}
+
+# doctor_check_vpn_appliance <report> - the appliance's half of a VPN (#22)
+#
+# The guard is checked because without it the tunnel reaches every port on the
+# appliance, where the SSH forward reached one.
+doctor_check_vpn_appliance() {
+  local report="$1" kind; kind="$(transport_kind)"
+  local -A r=()
+  local word
+  for word in ${=report}; do r[${word%%=*}]="${word#*=}"; done
+
+  if [[ "${r[transport]:-}" != "$kind" || "${r[up]:-}" != yes ]]; then
+    doc_fail "$(transport_label "$kind") is not up on the appliance." \
+      "Fix: tmbox transport ${kind}, which sets up whatever is missing on both ends."
+    return 0
+  fi
+  doc_pass "$(transport_label "$kind") is up on the appliance."
+
+  if [[ "${r[guard]:-}" == on ]]; then
+    doc_pass "The tunnel admits only Samba, SSH and ping from this Mac."
+  else
+    doc_fail "The guard on the appliance's tunnel interface is off." \
+      "Everything on the appliance is reachable through the tunnel. Fix: tmbox transport ${kind}"
+  fi
+
+  if [[ "$kind" == wireguard ]]; then
+    local hs="${r[handshake]:-never}"
+    if [[ "$hs" == never ]]; then
+      doc_warn "The appliance has never had a WireGuard handshake from this Mac."
+    elif [[ "$hs" == <-> ]] && (( hs > 180 )); then
+      doc_warn "The last WireGuard handshake was $(( hs / 60 )) minutes ago." \
+        "WireGuard renews it every two minutes while traffic flows, so this Mac has not reached the appliance since."
+    else
+      doc_pass "WireGuard handshake ${hs} seconds ago."
+    fi
+  fi
 }
 
 # doctor_check_uplink - the upload limit, as the kernel has it (#20)
@@ -418,8 +516,21 @@ doctor_check_space() {
 # Stale means: a session whose connection is gone. Samba keeps them until
 # `deadtime` reaps them, and the default deadtime is 0, meaning never.
 doctor_check_stale_sessions() {
-  local host="$1" sessions="$2"
+  local host="$1" sessions="$2" all="${3:-}"
   local -i n="${sessions:-0}"
+
+  # The second way to be stale, found switching transports in #22: the client
+  # is gone, but the socket is not, because it is sshd's end of the forward
+  # rather than the client's. A session like that still holds the sparsebundle
+  # open, and the next backup fails with "Resource busy". deadtime does not
+  # reap it either, because Samba never reaps a connection with open files.
+  # The test that does find it is this Mac's side: every session on the
+  # appliance belongs to this Mac, so when this Mac has no connection to the
+  # share at all, every session there is left over.
+  if [[ "$all" == <-> ]] && (( all > n )) && (( $(smb_client_connections) == 0 )) \
+     && ! tm_running "$(state_get destination_id)"; then
+    n=$all
+  fi
 
   if (( n == 0 )); then
     doc_pass "No stale Samba sessions."
@@ -440,7 +551,7 @@ doctor_check_stale_sessions() {
   fi
 }
 
-# doctor_remote_script - ten facts, one per line, order fixed
+# doctor_remote_script - thirteen facts, one per line, order fixed
 #
 # `|| echo` on every line so a missing command still produces its line: the
 # reader above is positional, and a short answer would shift every later value
@@ -469,7 +580,9 @@ zfs get -H -o value refquota tank/tm/${mac} 2>/dev/null || echo ''
 zfs list -Hp -o used,refquota tank/tm/${mac} 2>/dev/null | awk '{ if (\$2 > 0) printf \"%d\\n\", (\$1 * 100) / \$2; else print \"\" }' || echo ''
 testparm -s --parameter-name='server multi channel support' 2>/dev/null || echo ''
 for p in \$(smbstatus -p 2>/dev/null | awk '/^[0-9]+/ {print \$1}'); do ss -tnp 2>/dev/null | grep -q \"pid=\$p,\" || echo \$p; done | wc -l | tr -d ' '
-${UPLINK_SHAPER} show 2>/dev/null || echo ''"
+${UPLINK_SHAPER} show 2>/dev/null || echo ''
+${TMBOX_TRANSPORT_TOOL} show 2>/dev/null || echo ''
+smbstatus -p 2>/dev/null | awk '/^[0-9]+ /' | wc -l | tr -d ' '"
 }
 
 # --- 4. Time Machine's own state --------------------------------------------

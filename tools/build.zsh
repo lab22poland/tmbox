@@ -58,6 +58,7 @@ typeset -ga CMDS=(
   cmd/status.zsh
   cmd/doctor.zsh
   cmd/tunnel.zsh
+  cmd/transport.zsh
   cmd/unlock.zsh
   cmd/destroy.zsh
   cmd/limit.zsh
@@ -120,6 +121,9 @@ embed_b64 TMBOX_SHAPER       appliance/shape.sh
 embed_b64 TMBOX_TUNNEL_PLIST macos/tunnel.plist
 embed_b64 TMBOX_TUNNEL_BIN   macos/tmbox-tunnel
 embed_b64 TMBOX_SETDEST_EXP  macos/setdest.exp
+embed_b64 TMBOX_TRANSPORT    appliance/transport.sh
+embed_b64 TMBOX_WG_BIN       macos/tmbox-wireguard
+embed_b64 TMBOX_WG_PLIST     macos/wireguard.plist
 
 # --- libraries and commands -------------------------------------------------
 #

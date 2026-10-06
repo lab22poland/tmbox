@@ -58,6 +58,8 @@ typeset -ga TMBOX_SETUP_FLAGS=(
   "backup-wait:Minutes to watch the first backup; 0 starts it and returns"
   "uplink-limit:Cap backups at this many Mbit/s; auto (80% of a measurement) or off"
   "admin-cidr:Who may reach the appliance's SSH: auto (this connection only) or any"
+  "transport:How backups reach the appliance: ssh, wireguard or tailscale"
+  "wireguard-client:WireGuard on this Mac: brew (tmbox runs it) or app (the App Store app)"
   "zfs-passphrase:The appliance's dataset passphrase, for 'tmbox unlock'"
 )
 

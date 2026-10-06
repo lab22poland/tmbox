@@ -1,0 +1,104 @@
+#!/bin/zsh
+#
+# The WireGuard tunnel that carries SMB from this Mac to the appliance (#22).
+#
+# Installed at /Library/Application Support/tmbox/tmbox-wireguard and run by
+# the LaunchDaemon pl.lab22.tmbox.wireguard. The counterpart of tmbox-tunnel,
+# for the transport that survives an address change: WireGuard has no
+# connection to lose, and the appliance learns the Mac's new address from the
+# next authenticated packet.
+#
+#   1. start wireguard-go in the foreground, on a utun interface it chooses
+#   2. give it the key and the peer (`wg setconf`), and the two addresses
+#   3. wait on it
+#
+# **Why not wg-quick.** It is a bash 4 script, it daemonises wireguard-go and
+# exits, and it then runs a monitor of its own in the background - three things
+# launchd cannot supervise. Here launchd watches wireguard-go itself: if it
+# dies, this exits, and KeepAlive starts the whole thing again.
+#
+# **Only the appliance's address is routed.** AllowedIPs is that one /32, so
+# nothing else on this Mac's network changes, and it coexists with any other
+# VPN - Tailscale included - on its own utun.
+#
+# Measured in the Tart guest on macOS 26.6 against Debian 13: wireguard-go
+# 0.0.20250522 from Homebrew, `-f utun`, WG_TUN_NAME_FILE for the name it
+# picked, then setconf and a point-to-point address.
+
+emulate -L zsh
+setopt no_unset pipe_fail
+
+typeset -g SELF="${0:t}"
+typeset -g W_GO="" W_WG="" W_CONF="" W_ADDR="" W_PEER="" W_MTU=""
+typeset -g W_RUN="/var/run/tmbox-wireguard"
+
+die() { print -u2 -- "${SELF}: $*"; exit 78 }   # EX_CONFIG
+
+while (( $# > 0 )); do
+  case "$1" in
+    --wireguard-go) W_GO="${2:-}"; shift ;;
+    --wg)           W_WG="${2:-}"; shift ;;
+    --conf)         W_CONF="${2:-}"; shift ;;
+    --address)      W_ADDR="${2:-}"; shift ;;
+    --peer)         W_PEER="${2:-}"; shift ;;
+    --mtu)          W_MTU="${2:-}"; shift ;;
+    *)              die "unknown option: $1" ;;
+  esac
+  shift
+done
+
+[[ -n "$W_GO" && -x "$W_GO" ]] || die "wireguard-go not found: ${W_GO:-(not given)}"
+[[ -n "$W_WG" && -x "$W_WG" ]] || die "wg not found: ${W_WG:-(not given)}"
+[[ -n "$W_CONF" && -r "$W_CONF" ]] || die "cannot read the configuration: ${W_CONF:-(not given)}"
+[[ "$W_ADDR" == <->.<->.<->.<-> ]] || die "--address must be an IPv4 address"
+[[ "$W_PEER" == <->.<->.<->.<-> ]] || die "--peer must be an IPv4 address"
+
+mkdir -p -- "$W_RUN" /var/run/wireguard
+typeset -g NAME_FILE="${W_RUN}/name"
+rm -f -- "$NAME_FILE"
+
+# wireguard-go writes the utun name it was given here. Without it there is no
+# way to tell which utun is ours: Tailscale, iCloud Private Relay and any other
+# VPN have theirs too.
+export WG_TUN_NAME_FILE="$NAME_FILE"
+"$W_GO" -f utun &
+typeset -gi GO_PID=$!
+
+# launchd stops a job with SIGTERM. Passed on, so wireguard-go removes its
+# interface and socket rather than leaving them for the next start to trip on.
+trap 'kill -TERM $GO_PID 2>/dev/null; wait $GO_PID 2>/dev/null; exit 0' TERM INT
+
+typeset -i i
+for i in {1..100}; do [[ -s "$NAME_FILE" ]] && break; sleep 0.1; done
+[[ -s "$NAME_FILE" ]] || { kill -TERM $GO_PID 2>/dev/null; die "wireguard-go did not create an interface" }
+typeset -g IFN; IFN="$(<"$NAME_FILE")"
+for i in {1..100}; do [[ -S "/var/run/wireguard/${IFN}.sock" ]] && break; sleep 0.1; done
+
+if ! "$W_WG" setconf "$IFN" "$W_CONF"; then
+  kill -TERM $GO_PID 2>/dev/null
+  die "wg setconf ${IFN} failed"
+fi
+
+# Point-to-point: this Mac's address, then the appliance's. That also installs
+# the host route to the appliance, and nothing else.
+ifconfig "$IFN" inet "$W_ADDR" "$W_PEER" alias || { kill -TERM $GO_PID 2>/dev/null; die "could not address ${IFN}" }
+[[ -n "$W_MTU" ]] && ifconfig "$IFN" mtu "$W_MTU"
+ifconfig "$IFN" up
+
+# And then that route again, explicitly. Anything that tried to reach the
+# appliance's tunnel address while the tunnel was down - a probe, a backup -
+# left behind a route cloned from the default one, through Wi-Fi or Ethernet.
+# macOS keeps choosing it, with that interface's source address, until it
+# expires: measured in the Tart guest as 77 seconds in which every connection
+# went into the tunnel from the wrong address and the appliance's guard,
+# rightly, dropped it. `netstat -rn` does not show such a route; -a does.
+route -q -n delete -inet -host "$W_PEER" >/dev/null 2>&1
+route -q -n add -inet -host "$W_PEER" -interface "$IFN" >/dev/null 2>&1 \
+  || print -u2 -r -- "${SELF}: could not add the route to ${W_PEER} via ${IFN}"
+
+print -r -- "${SELF}: up on ${IFN}, ${W_ADDR} -> ${W_PEER}"
+
+wait $GO_PID
+typeset -i rc=$?
+print -u2 -r -- "${SELF}: wireguard-go exited (${rc})"
+exit $(( rc == 0 ? 1 : rc ))

@@ -129,6 +129,24 @@ ssh_forget_host() {
   return 0
 }
 
+# ssh_pin_alias <pinned-host> <alias> - the same host key, under another name
+#
+# With a VPN transport the appliance is administered through its tunnel
+# address (#22). Its host key is the one already pinned for its public address,
+# so it is pinned for the tunnel address too, rather than accepted afresh on
+# first use there.
+ssh_pin_alias() {
+  local host="$1" alias="$2"
+  [[ -f "$SSH_KNOWN_HOSTS" ]] || return 0
+  ssh-keygen -F "$alias" -f "$SSH_KNOWN_HOSTS" >/dev/null 2>&1 && return 0
+  local line
+  ssh-keygen -F "$host" -f "$SSH_KNOWN_HOSTS" 2>/dev/null | while IFS= read -r line; do
+    [[ "$line" == '#'* || -z "$line" ]] && continue
+    print -r -- "${alias} ${line#* }"
+  done >> "$SSH_KNOWN_HOSTS"
+  return 0
+}
+
 # ssh_opts <admin|tunnel> - the option array every connection shares
 #
 # accept-new, not no: the host key is pinned the first time and any later change

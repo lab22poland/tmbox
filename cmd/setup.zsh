@@ -166,7 +166,7 @@ setup_resume_summary() {
   ui_kv "Storage Box"  "$(state_has box_id && print -rn -- "$done $(state_get box_id)" || print -rn -- "$todo")"
   ui_kv "Server"       "$(state_has server_id && print -rn -- "$done $(state_get server_ip)" || print -rn -- "$todo")"
   ui_kv "Built"        "$([[ "$(state_get bootstrapped)" == yes ]] && print -rn -- "$done" || print -rn -- "$todo")"
-  ui_kv "Transport"    "$(transport_label)$([[ "$(state_get transport_ready)" == yes || -f "$TMBOX_TUNNEL_PLIST" ]] && print -rn -- " $done" || print -rn -- ", $todo")"
+  ui_kv "Transport"    "$(transport_label)$([[ "$(state_get transport_ready)" == "$(transport_kind)" || ( "$(transport_kind)" == ssh && -f "$TMBOX_TUNNEL_PLIST" ) ]] && print -rn -- " $done" || print -rn -- ", $todo")"
   ui_kv "Time Machine" "$(state_has destination_id && print -rn -- "$done" || print -rn -- "$todo")"
 }
 
@@ -182,6 +182,7 @@ setup_step1_welcome() {
 
   ui_step 1 $SETUP_STEPS "How much space"
   setup_ask_capacity_and_name
+  setup_ask_transport
 }
 
 setup_ask_capacity_and_name() {
@@ -199,6 +200,31 @@ setup_ask_capacity_and_name() {
 
   state_set capacity "$capacity" mac_name "$mac_name"
   log_info "capacity=$capacity mac_name=$mac_name"
+}
+
+# setup_ask_transport - how backups will reach the appliance (#22)
+#
+# Asked here, before anything is bought, for two reasons: the firewall created
+# in step 5 has to admit the transport's port, and a transport this Mac cannot
+# have - no WireGuard client, no Tailscale - should be found out while nothing
+# is billing. Unattended runs that do not say get the SSH tunnel, as before.
+setup_ask_transport() {
+  state_has transport && return 0
+
+  local kind
+  if (( TMBOX_NONINTERACTIVE )) && ! ans_has TRANSPORT; then
+    kind=ssh
+  else
+    kind="$(ui_menu TRANSPORT "How should this Mac reach it?" \
+      "ssh"       "SSH tunnel" "Nothing to install. Best on a connection whose address rarely changes: when it does, a running backup stops and tmbox doctor --fix re-opens the way." \
+      "wireguard" "WireGuard"  "Survives address changes - a phone's hotspot, LTE, 5G - without dropping a backup. Needs WireGuard on this Mac: from Homebrew, which tmbox installs with your agreement, or the App Store app.")"
+  fi
+
+  case "$kind" in
+    wireguard) wg_choose_client >/dev/null ;;
+  esac
+  state_set transport "$kind"
+  log_info "transport=$kind"
 }
 
 # --- 2. the Hetzner account -------------------------------------------------
@@ -720,6 +746,7 @@ setup_show_state() {
   ui_kv "Storage Box" "$(state_get box_id) - $(state_get box_server)"
   ui_kv "Subaccount"  "$(state_get box_subaccount)"
   ui_kv "Firewall"    "$(state_get firewall_id) - SSH from $(setup_admin_label)"
+  ui_kv "Transport"   "$(transport_label) - Time Machine uses $(transport_smb_host)"
   ui_kv "Cost"        "about EUR $(state_get monthly_eur) / month, net"
   ui_blank
   # Meant to be copied into a terminal - see ssh_hint for why it carries the
@@ -962,13 +989,20 @@ setup_step7_tunnel() {
   ui_spin_stop ok "The appliance is serving"
 
   ui_blank
-  ui_say "Time Machine will be pointed at ${TM_LOOPBACK_ALIAS}, an address that exists only inside this Mac. Everything sent to it goes through one outbound SSH connection to the appliance, so the share is never exposed to the network and the appliance's firewall stays closed to everything but this address."
+  case "$(transport_kind)" in
+    ssh)
+      ui_say "Time Machine will be pointed at ${TM_LOOPBACK_ALIAS}, an address that exists only inside this Mac. Everything sent to it goes through one outbound SSH connection to the appliance, so the share is never exposed to the network and the appliance's firewall stays closed to everything but this address." ;;
+    wireguard)
+      ui_say "Time Machine will be pointed at ${TMBOX_WG_APPLIANCE}, the appliance's end of a WireGuard tunnel from this Mac. The share is never exposed to the network: the tunnel's port answers nothing without this Mac's key, and on the appliance only Samba, SSH and ping are let through it." ;;
+    tailscale)
+      ui_say "Time Machine will be pointed at the appliance's address in your tailnet. The share is never exposed to the internet, and on the appliance only Samba, SSH and ping from this Mac's tailnet address are let through." ;;
+  esac
   ui_blank
 
-  tunnel_install || {
+  transport_install "$(transport_kind)" || {
     ui_blank
-    ui_bad "The tunnel could not be installed."
-    ui_say "The appliance is built and recorded; once this is fixed, tmbox setup continues from here. tmbox tunnel status reports what is wrong."
+    ui_bad "$(transport_Name) could not be set up."
+    ui_say "The appliance is built and recorded; once this is fixed, tmbox setup continues from here. tmbox transport reports what is wrong."
     exit 1
   }
 }
@@ -1051,9 +1085,11 @@ setup_step8_destination() {
     #
     # Measured 2026-09-19, on exactly the path the docs recommend: destroy,
     # then build again. So the destination is stale if it was set for a
-    # different appliance, or with a different password.
+    # different appliance, or with a different password - or, since #22, for a
+    # different transport, whose address is a different URL.
     if [[ "$(state_get destination_server_id)" == "$(state_get server_id)" \
-       && "$(state_get destination_pw_fp)" == "$(setup_pw_fingerprint)" ]]; then
+       && "$(state_get destination_pw_fp)" == "$(setup_pw_fingerprint)" \
+       && "$(state_get destination_url "$url")" == "$url" ]]; then
       ui_ok "Time Machine already has this destination."
       state_set destination_id "$existing" destination_url "$url"
       setup_report_encryption "$share"
@@ -1080,76 +1116,13 @@ setup_step8_destination() {
     # failed the same way until the Mac restarted. The state belongs to the
     # server address, 127.0.0.2, so this branch is only the case tmbox can see.
     TMBOX_DESTINATION_REPLACED=1
-    # Removed rather than re-added: `setdestination -a` appends, and two
-    # entries for one share make Time Machine alternate between them and halve
-    # the history it keeps in each.
-    priv_run_quiet /usr/bin/tmutil removedestination "$existing" >/dev/null 2>&1 \
-      || ui_warn "The old destination could not be removed; continuing."
   fi
 
-  # Checked at startup too. Again here because the terminal can change between
-  # the two - a resumed run started from a different app, for one.
-  preflight_time_machine_ready || {
+  setup_add_destination "$share" "$url" "$existing" || {
     ui_blank
-    ui_say "Everything up to here is built and recorded. Grant Full Disk Access and run tmbox setup again; it continues from this step."
+    ui_say "Everything up to here is built and recorded; tmbox setup continues from this step once that is fixed."
     exit 1
   }
-
-  local pw; pw="$(kc_get samba-password)" || pw=""
-  if [[ -z "$pw" ]]; then
-    ui_bad "The share password is not on this Mac."
-    ui_say "It was generated on the appliance during setup. tmbox doctor can fetch it again."
-    exit 1
-  fi
-
-  priv_prime || exit 1
-
-  ui_spin_start "Adding the destination"
-  local -i rc=0
-  setup_run_setdestination "$url" "$pw" || rc=$?
-
-  case $rc in
-    0)  ui_spin_stop ok "Destination added" ;;
-    64) ui_spin_stop bad "the password never reached tmutil"
-        ui_die "Internal error: the share password was not delivered to tmutil." ;;
-    90) ui_spin_stop bad "tmutil never asked for the password"
-        ui_say "That usually means tmutil rejected the URL before authenticating. The transcript has its output: ${TMBOX_LOG_FILE}"
-        exit 1 ;;
-    91) ui_spin_stop bad "tmutil stopped responding"
-        # Measured, and worth naming precisely: a client that held a lease on
-        # the share and then vanished - a Mac that slept, or a tunnel killed
-        # mid-mount - leaves Samba waiting for a lease break that will never
-        # come, and every later client blocks behind it. It clears when the
-        # stale session is closed on the appliance.
-        ui_say "The share is reachable but not answering. This is usually a stale session left by a client that disappeared while holding the share open."
-        ui_say "Run tmbox doctor, which finds and clears those, then run tmbox setup again."
-        exit 1 ;;
-    80) # tmutil uses 80 for two different failures, and only its own
-        # message tells them apart. Missing Full Disk Access was reported here
-        # as a wrong password once, and sent the user to sync a password that
-        # had never been the problem (#6).
-        if [[ "$SETUP_SETDEST_OUT" == *"Full Disk Access"* ]]; then
-          ui_spin_stop bad "tmutil needs Full Disk Access"
-          fda_explain
-        else
-          ui_spin_stop bad "the appliance rejected the share password"
-          ui_say "tmutil's own message is in ${TMBOX_LOG_FILE}. tmbox doctor checks the share and its credentials."
-        fi
-        exit 1 ;;
-    *)  ui_spin_stop bad "tmutil refused the destination (${rc})"
-        ui_say "tmutil's own message is in ${TMBOX_LOG_FILE}."
-        exit 1 ;;
-  esac
-
-  local id; id="$(tm_destination_id "$share")"
-  if [[ -z "$id" ]]; then
-    ui_bad "tmutil reported success but Time Machine has no such destination."
-    exit 1
-  fi
-  state_set destination_id "$id" destination_url "$url" \
-            destination_server_id "$(state_get server_id)" \
-            destination_pw_fp "$(setup_pw_fingerprint)"
-  ui_kv "Destination" "$id"
 
   setup_report_encryption "$share"
 
@@ -1163,6 +1136,93 @@ setup_step8_destination() {
     ui_warn "Restart this Mac before the next backup."
     ui_say "Replacing a destination leaves macOS holding credential state that Time Machine cannot get past; until the Mac restarts, every backup fails with an authentication error even though the share and the password are both fine. Nothing else clears it."
   fi
+}
+
+# setup_add_destination <share> <url> [replaces-id] - point Time Machine at it
+#
+# Also how `tmbox transport` moves an existing destination to a new address
+# (#22). Returns non-zero, having said why, rather than exiting: that caller
+# keeps the old transport when this fails.
+#
+# The old destination is removed only once the new one can be added - Full
+# Disk Access granted, the password at hand - and immediately before it: until
+# then it is the one that works.
+setup_add_destination() {
+  local share="$1" url="$2" existing="${3:-}"
+
+  # Checked at startup too. Again here because the terminal can change between
+  # the two - a resumed run started from a different app, for one.
+  preflight_time_machine_ready || {
+    ui_blank
+    ui_say "Grant Full Disk Access, then run this again."
+    return 1
+  }
+
+  local pw; pw="$(kc_get samba-password)" || pw=""
+  if [[ -z "$pw" ]]; then
+    ui_bad "The share password is not on this Mac."
+    ui_say "It was generated on the appliance during setup. tmbox doctor can fetch it again."
+    return 1
+  fi
+
+  priv_prime || return 1
+
+  # Removed rather than re-added: `setdestination -a` appends, and two entries
+  # for one share make Time Machine alternate between them and halve the
+  # history it keeps in each.
+  if [[ -n "$existing" ]]; then
+    priv_run_quiet /usr/bin/tmutil removedestination "$existing" >/dev/null 2>&1 \
+      || ui_warn "The old destination could not be removed; continuing."
+  fi
+
+  ui_spin_start "Adding the destination"
+  local -i rc=0
+  setup_run_setdestination "$url" "$pw" || rc=$?
+
+  case $rc in
+    0)  ui_spin_stop ok "Destination added" ;;
+    64) ui_spin_stop bad "the password never reached tmutil"
+        ui_bad "Internal error: the share password was not delivered to tmutil."
+        return 1 ;;
+    90) ui_spin_stop bad "tmutil never asked for the password"
+        ui_say "That usually means tmutil rejected the URL before authenticating. The transcript has its output: ${TMBOX_LOG_FILE}"
+        return 1 ;;
+    91) ui_spin_stop bad "tmutil stopped responding"
+        # Measured, and worth naming precisely: a client that held a lease on
+        # the share and then vanished - a Mac that slept, or a tunnel killed
+        # mid-mount - leaves Samba waiting for a lease break that will never
+        # come, and every later client blocks behind it. It clears when the
+        # stale session is closed on the appliance.
+        ui_say "The share is reachable but not answering. This is usually a stale session left by a client that disappeared while holding the share open."
+        ui_say "Run tmbox doctor, which finds and clears those, then try again."
+        return 1 ;;
+    80) # tmutil uses 80 for two different failures, and only its own
+        # message tells them apart. Missing Full Disk Access was reported here
+        # as a wrong password once, and sent the user to sync a password that
+        # had never been the problem (#6).
+        if [[ "$SETUP_SETDEST_OUT" == *"Full Disk Access"* ]]; then
+          ui_spin_stop bad "tmutil needs Full Disk Access"
+          fda_explain
+        else
+          ui_spin_stop bad "the appliance rejected the share password"
+          ui_say "tmutil's own message is in ${TMBOX_LOG_FILE}. tmbox doctor checks the share and its credentials."
+        fi
+        return 1 ;;
+    *)  ui_spin_stop bad "tmutil refused the destination (${rc})"
+        ui_say "tmutil's own message is in ${TMBOX_LOG_FILE}."
+        return 1 ;;
+  esac
+
+  local id; id="$(tm_destination_id "$share")"
+  if [[ -z "$id" ]]; then
+    ui_bad "tmutil reported success but Time Machine has no such destination."
+    return 1
+  fi
+  state_set destination_id "$id" destination_url "$url" \
+            destination_server_id "$(state_get server_id)" \
+            destination_pw_fp "$(setup_pw_fingerprint)"
+  ui_kv "Destination" "$id"
+  return 0
 }
 
 # setup_pw_fingerprint - identifies the share password without storing it

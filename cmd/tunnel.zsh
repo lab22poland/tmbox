@@ -42,6 +42,13 @@ typeset -g TMBOX_TUNNEL_USER="tmtunnel"
 
 cmd_tunnel() {
   local action="${1:-status}"
+
+  # The same verbs for whichever transport carries the backups (#22).
+  case "$(transport_kind)" in
+    wireguard) tunnel_wireguard "$action"; return $? ;;
+    tailscale) tunnel_tailscale "$action"; return $? ;;
+  esac
+
   case "$action" in
     install)   tunnel_install ;;
     uninstall) tunnel_uninstall ;;
@@ -54,6 +61,38 @@ cmd_tunnel() {
       ui_say "Try: tmbox tunnel {install|start|stop|restart|status|uninstall}"
       return 2
       ;;
+  esac
+}
+
+# tunnel_wireguard <action> - the WireGuard daemon, under the same verbs
+tunnel_wireguard() {
+  if [[ "$(state_get wireguard_client)" == app && "$1" != status ]]; then
+    ui_say "WireGuard runs in the WireGuard app on this Mac, so it is started and stopped there."
+    return 0
+  fi
+  case "$1" in
+    install)   wg_install "$(state_get server_ip)" ;;
+    uninstall) wg_daemon_uninstall && ui_ok "WireGuard tunnel removed. Backups will fail until it is installed again." ;;
+    start|restart)
+      if wg_kickstart; then ui_ok "WireGuard is up."; else ui_bad "WireGuard did not come up."; wg_diagnose; return 1; fi ;;
+    stop)
+      launchd_is_loaded "$TMBOX_WG_LABEL" || { ui_ok "WireGuard is not running."; return 0 }
+      priv_prime || return 1
+      priv_run launchctl bootout "system/${TMBOX_WG_LABEL}" >/dev/null 2>&1
+      ui_ok "WireGuard stopped. Backups will fail until it is started again." ;;
+    status)    transport_report ;;
+    *) ui_bad "Unknown action: $1"
+       ui_say "Try: tmbox tunnel {install|start|stop|restart|status|uninstall}"
+       return 2 ;;
+  esac
+}
+
+# tunnel_tailscale <action> - Tailscale is the owner's, not tmbox's, to run
+tunnel_tailscale() {
+  case "$1" in
+    status) transport_report ;;
+    *) ui_say "Tailscale is run by the Tailscale app on this Mac; start and stop it there. tmbox tunnel status reports whether backups get through."
+       return 0 ;;
   esac
 }
 

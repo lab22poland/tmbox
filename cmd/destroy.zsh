@@ -53,6 +53,11 @@ cmd_destroy() {
   if [[ -f "$TMBOX_TUNNEL_PLIST" ]]; then
     tunnel_uninstall || ui_warn "The tunnel could not be removed; see tmbox tunnel status."
   fi
+  # And a WireGuard tunnel, for the same reason (#22). Tailscale's own app is
+  # the owner's and stays; the appliance leaves the tailnet below.
+  if [[ -f "$TMBOX_WG_PLIST" ]]; then
+    wg_daemon_uninstall || ui_warn "The WireGuard tunnel could not be removed; see tmbox tunnel status."
+  fi
   destroy_tm_destination
 
   destroy_quiesce_appliance "$server_ip"
@@ -278,6 +283,13 @@ destroy_local_traces() {
   # behind means the next appliance - or the next customer's machine on that
   # address - trips a host-key warning that looks exactly like an attack.
   [[ -n "$ip" ]] && ssh_forget_host "$ip"
+  # And under the tunnel addresses it was pinned to as well (#22).
+  ssh_forget_host "$TMBOX_WG_APPLIANCE"
+  local ts; ts="$(state_get tailscale_ip)"
+  [[ -n "$ts" ]] && ssh_forget_host "$ts"
+  # A WireGuard configuration written for the App Store app, if it was never
+  # imported: it holds this Mac's tunnel key.
+  rm -rf -- "${TMBOX_STATE_DIR}/wireguard"
 
   # Credentials go only if the box went too. While the backups still exist, the
   # Time Machine password is the only thing that can read them, and it is
