@@ -93,6 +93,7 @@ status_backup_age() {
 
   local ago
   if   (( age < 90 ));    then ago="just now"
+  elif (( age < 120 ));   then ago="a minute ago"
   elif (( age < 5400 ));  then ago="$(( age / 60 )) minutes ago"
   elif (( age < 172800 )); then ago="$(( age / 3600 )) hours ago"
   else                         ago="$(( age / 86400 )) days ago"
