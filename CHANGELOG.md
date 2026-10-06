@@ -6,6 +6,11 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- After `tmbox transport` moved Time Machine to a new address, `status` and `doctor` reported no backup until the next one - "No backup to the appliance has completed yet" - although the history was all there and continued. They now report the last backup from before the change, marked as such ([#22](https://github.com/lab22poland/tmbox/issues/22)).
+- "1 minutes ago" reads "a minute ago".
+
 ## [0.2.0] - 2026-10-06
 
 ### Added
