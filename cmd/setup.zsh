@@ -746,6 +746,7 @@ setup_show_state() {
   ui_kv "Storage Box" "$(state_get box_id) - $(state_get box_server)"
   ui_kv "Subaccount"  "$(state_get box_subaccount)"
   ui_kv "Firewall"    "$(state_get firewall_id) - SSH from $(setup_admin_label)"
+  ui_kv "Transport"   "$(transport_label) - Time Machine uses $(transport_smb_host)"
   ui_kv "Cost"        "about EUR $(state_get monthly_eur) / month, net"
   ui_blank
   # Meant to be copied into a terminal - see ssh_hint for why it carries the
