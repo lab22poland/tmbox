@@ -310,7 +310,7 @@ doctor_check_appliance() {
   local -a f=( "${(@f)out}" )
   local keystatus="${f[1]}" pool="${f[2]}" mountopts="${f[3]}" dio="${f[4]}"
   local smbd="${f[5]}" used="${f[6]}" quota="${f[7]}" pct="${f[8]}" mc="${f[9]}" sessions="${f[10]}"
-  local shaper="${f[11]:-}" vpn="${f[12]:-}"
+  local shaper="${f[11]:-}" vpn="${f[12]:-}" all_sessions="${f[13]:-}"
 
   # Locked is not broken, and the difference matters: it is the resting state
   # after any reboot, and it has its own one-word fix.
@@ -354,7 +354,7 @@ doctor_check_appliance() {
 
   doctor_check_space "$used" "$quota" "$pct"
   doctor_check_multichannel "$host" "$mc"
-  doctor_check_stale_sessions "$host" "$sessions"
+  doctor_check_stale_sessions "$host" "$sessions" "$all_sessions"
   doctor_check_uplink "$host" "$shaper"
   [[ "$(transport_kind)" != ssh ]] && doctor_check_vpn_appliance "$vpn"
   return 0
@@ -516,8 +516,21 @@ doctor_check_space() {
 # Stale means: a session whose connection is gone. Samba keeps them until
 # `deadtime` reaps them, and the default deadtime is 0, meaning never.
 doctor_check_stale_sessions() {
-  local host="$1" sessions="$2"
+  local host="$1" sessions="$2" all="${3:-}"
   local -i n="${sessions:-0}"
+
+  # The second way to be stale, found switching transports in #22: the client
+  # is gone, but the socket is not, because it is sshd's end of the forward
+  # rather than the client's. A session like that still holds the sparsebundle
+  # open, and the next backup fails with "Resource busy". deadtime does not
+  # reap it either, because Samba never reaps a connection with open files.
+  # The test that does find it is this Mac's side: every session on the
+  # appliance belongs to this Mac, so when this Mac has no connection to the
+  # share at all, every session there is left over.
+  if [[ "$all" == <-> ]] && (( all > n )) && (( $(smb_client_connections) == 0 )) \
+     && ! tm_running "$(state_get destination_id)"; then
+    n=$all
+  fi
 
   if (( n == 0 )); then
     doc_pass "No stale Samba sessions."
@@ -538,7 +551,7 @@ doctor_check_stale_sessions() {
   fi
 }
 
-# doctor_remote_script - twelve facts, one per line, order fixed
+# doctor_remote_script - thirteen facts, one per line, order fixed
 #
 # `|| echo` on every line so a missing command still produces its line: the
 # reader above is positional, and a short answer would shift every later value
@@ -568,7 +581,8 @@ zfs list -Hp -o used,refquota tank/tm/${mac} 2>/dev/null | awk '{ if (\$2 > 0) p
 testparm -s --parameter-name='server multi channel support' 2>/dev/null || echo ''
 for p in \$(smbstatus -p 2>/dev/null | awk '/^[0-9]+/ {print \$1}'); do ss -tnp 2>/dev/null | grep -q \"pid=\$p,\" || echo \$p; done | wc -l | tr -d ' '
 ${UPLINK_SHAPER} show 2>/dev/null || echo ''
-${TMBOX_TRANSPORT_TOOL} show 2>/dev/null || echo ''"
+${TMBOX_TRANSPORT_TOOL} show 2>/dev/null || echo ''
+smbstatus -p 2>/dev/null | awk '/^[0-9]+ /' | wc -l | tr -d ' '"
 }
 
 # --- 4. Time Machine's own state --------------------------------------------

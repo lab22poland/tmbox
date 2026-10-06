@@ -1001,7 +1001,7 @@ setup_step7_tunnel() {
 
   transport_install "$(transport_kind)" || {
     ui_blank
-    ui_bad "The $(transport_label) could not be set up."
+    ui_bad "$(transport_Name) could not be set up."
     ui_say "The appliance is built and recorded; once this is fixed, tmbox setup continues from here. tmbox transport reports what is wrong."
     exit 1
   }

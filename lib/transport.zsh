@@ -61,6 +61,23 @@ transport_label() {
   esac
 }
 
+# transport_name [kind] - the same, as it reads inside a sentence
+#
+# "through the SSH tunnel", but "through WireGuard": a product name takes no
+# article, and "the WireGuard" is what the first switch printed.
+transport_name() {
+  case "${1:-$(transport_kind)}" in
+    ssh) print -rn -- "the SSH tunnel" ;;
+    *)   transport_label "${1:-}" ;;
+  esac
+}
+
+# transport_Name [kind] - the same, at the start of a sentence
+transport_Name() {
+  local n; n="$(transport_name "${1:-}")"
+  print -rn -- "${(U)n[1]}${n[2,-1]}"
+}
+
 # transport_smb_host [kind] - the address in Time Machine's smb:// URL
 #
 # Empty for tailscale until the appliance has joined the tailnet and its address
@@ -146,6 +163,18 @@ smb_probe() {
     | nc -w "$timeout" "$host" 445 2>/dev/null \
     | dd bs=1 skip=4 count=4 2>/dev/null)"
   [[ "$reply" == $'\xfeSMB' ]]
+}
+
+# smb_client_connections - this Mac's open connections to the share's address
+#
+# Counted from this side, for doctor: a session the appliance still has while
+# this Mac has no connection at all is a session nobody will ever close.
+smb_client_connections() {
+  local host; host="$(transport_smb_host)"
+  [[ -n "$host" ]] || { print -rn -- 0; return 0 }
+  local -i n
+  n="$(netstat -an -p tcp 2>/dev/null | grep -F "${host}.445 " | grep -c ESTABLISHED)"
+  print -rn -- $n
 }
 
 # smb_wait <host> <seconds>

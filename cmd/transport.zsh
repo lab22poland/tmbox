@@ -483,10 +483,10 @@ transport_switch() {
   # The same one again is a repair: install what is missing, point Time
   # Machine at it if it is not, and remove nothing.
   if [[ "$want" == "$have" ]]; then
-    ui_say "Backups already use the $(transport_label "$want"). Checking that every part of it is in place."
+    ui_say "Backups already use $(transport_name "$want"). Checking that every part of it is in place."
     ui_blank
     transport_install "$want" && transport_repoint_destination || return 1
-    ui_ok "The $(transport_label "$want") is in place."
+    ui_ok "$(transport_Name "$want") is in place."
     return 0
   fi
 
@@ -497,9 +497,9 @@ transport_switch() {
     return 5
   fi
 
-  ui_say "Backups go through the $(transport_label "$have") now. tmbox will set up the $(transport_label "$want"), point Time Machine at the same share through it, and then remove the $(transport_label "$have"). The backups themselves are not touched."
+  ui_say "Backups go through $(transport_name "$have") now. tmbox will set up $(transport_name "$want"), point Time Machine at the same share through it, and then remove $(transport_name "$have"). The backups themselves are not touched."
   ui_blank
-  ui_confirm SWITCH_TRANSPORT "Switch to the $(transport_label "$want")?" "y" || { ui_ok "Nothing was changed."; return 0 }
+  ui_confirm SWITCH_TRANSPORT "Switch to $(transport_name "$want")?" "y" || { ui_ok "Nothing was changed."; return 0 }
 
   http_init || ui_die "Could not create a private temporary directory."
 
@@ -515,7 +515,7 @@ transport_switch() {
 
   if ! transport_install "$want"; then
     ui_blank
-    ui_bad "The $(transport_label "$want") could not be set up; backups still go through the $(transport_label "$have")."
+    ui_bad "$(transport_Name "$want") could not be set up; backups still go through $(transport_name "$have")."
     return 1
   fi
 
@@ -527,8 +527,12 @@ transport_switch() {
   # longer arrives that way.
   local rate; rate="$(state_get uplink_kbit)"
   if [[ -n "$rate" ]]; then
-    limit_apply "$(appliance_host)" "$rate" >/dev/null 2>&1 \
-      || ui_warn "The upload limit could not be moved to the new transport; tmbox limit $(limit_mbit "$rate") tries again."
+    ui_spin_start "Moving the upload limit to $(transport_name "$want")"
+    if uplink_apply "$(appliance_host)" "$rate" >/dev/null 2>&1; then
+      ui_spin_stop ok "Upload limit: $(uplink_fmt "$rate")"
+    else
+      ui_spin_stop warn "The upload limit could not be moved; tmbox limit $(limit_mbit "$rate") tries again"
+    fi
   fi
 
   if ! transport_repoint_destination; then
@@ -537,13 +541,13 @@ transport_switch() {
     state_set transport "$have"
     [[ -n "$previous_ready" ]] && state_set transport_ready "$previous_ready"
     ui_blank
-    ui_say "The $(transport_label "$want") is set up but Time Machine was not moved to it; backups still go through the $(transport_label "$have"). Fix what is said above and run this again."
+    ui_say "$(transport_Name "$want") is set up but Time Machine was not moved to it; backups still go through $(transport_name "$have"). Fix what is said above and run this again."
     return 1
   fi
 
-  ui_spin_start "Removing the $(transport_label "$have")"
+  ui_spin_start "Removing $(transport_name "$have")"
   transport_remove "$have"
-  ui_spin_stop ok "The $(transport_label "$have") is removed"
+  ui_spin_stop ok "$(transport_Name "$have") is removed"
 
   # And its port. The SSH rule is left as it was - pinned or open is the
   # owner's choice, and has nothing to do with the transport.
@@ -553,7 +557,7 @@ transport_switch() {
   fi
 
   ui_blank
-  ui_ok "Backups now go through the $(transport_label "$want")."
+  ui_ok "Backups now go through $(transport_name "$want")."
   return 0
 }
 
