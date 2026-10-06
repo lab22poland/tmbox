@@ -217,11 +217,13 @@ setup_ask_transport() {
   else
     kind="$(ui_menu TRANSPORT "How should this Mac reach it?" \
       "ssh"       "SSH tunnel" "Nothing to install. Best on a connection whose address rarely changes: when it does, a running backup stops and tmbox doctor --fix re-opens the way." \
-      "wireguard" "WireGuard"  "Survives address changes - a phone's hotspot, LTE, 5G - without dropping a backup. Needs WireGuard on this Mac: from Homebrew, which tmbox installs with your agreement, or the App Store app.")"
+      "wireguard" "WireGuard"  "Survives address changes - a phone's hotspot, LTE, 5G - without dropping a backup. Needs WireGuard on this Mac: from Homebrew, which tmbox installs with your agreement, or the App Store app." \
+      "tailscale" "Tailscale"  "Survives address changes too, through your own tailnet. Needs Tailscale on this Mac - tmbox installs it with your agreement - and backups stop while it is switched to another tailnet.")"
   fi
 
   case "$kind" in
     wireguard) wg_choose_client >/dev/null ;;
+    tailscale) ts_preflight || exit 1 ;;
   esac
   state_set transport "$kind"
   log_info "transport=$kind"

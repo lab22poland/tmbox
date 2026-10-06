@@ -21,7 +21,7 @@
 #   tmbox-transport tailscale-down
 #   tmbox-transport show
 #       transport=<none|wireguard|tailscale> up=<yes|no> guard=<on|off>
-#       handshake=<seconds ago|never> ts_ip=<addr|->
+#       handshake=<seconds ago|never> ts_ip=<addr|-> ts_expiry=<time|->
 #
 # **The guard.** A VPN interface reaches the whole appliance, where the SSH
 # forward reached one port. So an nftables table of tmbox's own admits, on the
@@ -229,7 +229,7 @@ guard_dev() {
 }
 
 show() {
-  local kind=none up=no guard=off hs=never ts_ip=-
+  local kind=none up=no guard=off hs=never ts_ip=- ts_exp=-
   if systemctl is-enabled --quiet wg-quick@${WG_IF}.service 2>/dev/null; then
     kind=wireguard
     ip link show dev "$WG_IF" >/dev/null 2>&1 && up=yes
@@ -241,9 +241,12 @@ show() {
     # end the report with nothing printed at all.
     ts_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
     if [ -n "$ts_ip" ]; then kind=tailscale; up=yes; else ts_ip=-; fi
+    # Absent when key expiry is disabled, as it is for tagged machines.
+    ts_exp="$(tailscale status --json 2>/dev/null | jq -r '.Self.KeyExpiry // "-"' 2>/dev/null || true)"
+    [ -n "$ts_exp" ] || ts_exp=-
   fi
   guard_on && guard=on
-  printf 'transport=%s up=%s guard=%s handshake=%s ts_ip=%s\n' "$kind" "$up" "$guard" "$hs" "$ts_ip"
+  printf 'transport=%s up=%s guard=%s handshake=%s ts_ip=%s ts_expiry=%s\n' "$kind" "$up" "$guard" "$hs" "$ts_ip" "$ts_exp"
 }
 
 [ "$(id -u)" -eq 0 ] || die "must run as root"
