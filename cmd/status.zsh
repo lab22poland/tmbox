@@ -174,7 +174,7 @@ status_tunnel() {
 # a WAN link and a status screen that takes ten seconds gets run less often.
 
 status_appliance() {
-  local host; host="$(state_get server_ip)"
+  local host; host="$(appliance_host)"
   [[ -n "$host" ]] || return 0
 
   ui_blank

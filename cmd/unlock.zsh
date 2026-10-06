@@ -29,7 +29,7 @@ cmd_unlock() {
   ui_banner "tmbox unlock" "Give the appliance its key"
 
   local host
-  host="$(state_get server_ip)"
+  host="$(appliance_host)"
   if [[ -z "$host" ]]; then
     ui_bad "This Mac has no appliance recorded."
     ui_say "Run 'tmbox setup' first."

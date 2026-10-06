@@ -18,7 +18,7 @@ cmd_limit() {
 
   ui_banner "tmbox limit" "How much of the upload backups may take"
 
-  local host; host="$(state_get server_ip)"
+  local host; host="$(appliance_host)"
   if [[ -z "$host" ]]; then
     ui_bad "This Mac has no appliance recorded."
     ui_say "Run 'tmbox setup' first."

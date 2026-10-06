@@ -12,6 +12,7 @@ source "$TMBOX_ROOT/lib/log.zsh"
 source "$TMBOX_ROOT/lib/ui.zsh"
 source "$TMBOX_ROOT/lib/json.zsh"
 source "$TMBOX_ROOT/lib/macos.zsh"
+source "$TMBOX_ROOT/lib/transport.zsh"
 
 ui_init --no-tty-ok
 

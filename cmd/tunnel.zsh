@@ -7,7 +7,8 @@
 #   tmbox tunnel start|stop|restart
 #   tmbox tunnel uninstall   remove the daemon, the key and the alias
 #
-# This is the whole transport. There is no VPN, no third-party agent and
+# This is the default transport (#22 added two more; see lib/transport.zsh),
+# and the one with nothing to install. There is no VPN, no third-party agent and
 # nothing listening on this Mac's network interfaces: one outbound SSH
 # connection, a listener on a loopback alias, and a key that can open that one
 # forward and do nothing else.
@@ -266,39 +267,12 @@ tunnel_kickstart() {
 
 # --- state ------------------------------------------------------------------
 
-# The smallest legal SMB2 NEGOTIATE request, base64 so it survives being
-# embedded in a shell script: a 4-byte NetBIOS length followed by a 64-byte
-# SMB2 header and a 38-byte negotiate body offering dialect 0x0202. Any SMB
-# server answers it, before and without authentication.
-#
-# Carried as a constant rather than built with printf escapes, because counting
-# a hundred \x00 by hand is exactly the kind of thing that is wrong by two
-# bytes and still looks right - which it was, the first time this was written.
-typeset -g TMBOX_SMB_NEGOTIATE_B64="AAAAZv5TTUJAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAkAAEAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAg=="
-
 # tunnel_listening - does a real SMB server answer through the forward?
 #
-# **Not a TCP connect.** `ssh -L` binds the local port itself, so the port
-# accepts connections whether or not the far end is reachable: `nc -z` succeeds
-# against an appliance that is switched off, locked, or not running Samba.
-# Measured 2026-09-19 against a deliberately locked appliance - `nc -z`
-# reported success while every backup failed. A check that passes when the
-# thing it checks is broken is worse than no check, because it sends people
-# looking elsewhere.
-#
-# So the probe speaks SMB: send a NEGOTIATE, require an SMB2 reply. That proves
-# the whole path end to end - daemon, ssh channel, the appliance's sshd, its
-# loopback, and smbd actually serving - in one round trip and with no
-# credential.
-tunnel_listening() {
-  local -i timeout="${1:-6}"
-  local reply
-  reply="$(print -rn -- "$TMBOX_SMB_NEGOTIATE_B64" \
-    | base64 -D 2>/dev/null \
-    | nc -w "$timeout" "$TM_LOOPBACK_ALIAS" 445 2>/dev/null \
-    | dd bs=1 skip=4 count=4 2>/dev/null)"
-  [[ "$reply" == $'\xfeSMB' ]]
-}
+# smb_probe against the loopback end of the forward. See lib/transport.zsh for
+# why it has to speak SMB rather than open a TCP connection: ssh binds this
+# port itself, so a connect succeeds whether or not anything is at the far end.
+tunnel_listening() { smb_probe "$TM_LOOPBACK_ALIAS" "${1:-6}" }
 
 # tunnel_port_open - the weaker question, kept because it separates two faults
 #

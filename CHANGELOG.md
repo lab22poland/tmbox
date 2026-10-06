@@ -6,6 +6,10 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tmbox firewall [any | pin]` and `--admin-cidr any`: the appliance's SSH can be opened to every address instead of only this Mac's, for connections whose address keeps changing - a phone's hotspot, LTE, 5G - where the pin locked the Mac out after every change. Only tmbox's own keys can log in, and SMB stays closed to the internet. `doctor` reports an open firewall as such and no longer re-pins it ([#22](https://github.com/lab22poland/tmbox/issues/22)).
+
 ## [0.1.4] - 2026-10-04
 
 ### Added

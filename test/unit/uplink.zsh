@@ -15,6 +15,7 @@ source "$TMBOX_ROOT/lib/state.zsh"
 source "$TMBOX_ROOT/lib/secrets.zsh"
 source "$TMBOX_ROOT/lib/sshx.zsh"
 source "$TMBOX_ROOT/lib/macos.zsh"
+source "$TMBOX_ROOT/lib/transport.zsh"
 source "$TMBOX_ROOT/lib/uplink.zsh"
 source "$TMBOX_ROOT/cmd/limit.zsh"
 
@@ -161,10 +162,41 @@ test_setup_auto_takes_eighty_percent_of_the_measurement() {
 
 test_the_shaper_touches_only_the_tunnels_port() {
   # The appliance's own traffic with the Storage Box must never be slowed:
-  # every ZFS write goes that way.
+  # every ZFS write goes that way, out of the WAN interface to tcp/445 on the
+  # box, and its replies come back *from* 445. So what is matched is the
+  # destination port of traffic arriving for the tunnel - and on the WAN
+  # interface never 445 or 139, whichever transport is in use (#22).
   local src="$TMBOX_ROOT/appliance/shape.sh"
-  assert_eq 2 "$(grep -c 'flower ip_proto tcp dst_port 22 action mirred' "$src")" "IPv4 and IPv6, port 22 only"
-  assert_eq 0 "$(grep -cE 'dst_port (445|139)' "$src")"
+  assert_eq 2 "$(grep -c 'flower ip_proto "$proto" dst_port "$port" action mirred' "$src")" "IPv4 and IPv6"
+  assert_eq 0 "$(grep -c 'src_port' "$src")" "never by source port"
+
+  local kind match
+  for kind in $TMBOX_TRANSPORTS; do
+    match="$(transport_shape_match "$kind")"
+    assert_nonempty "$match" "$kind has a match"
+    [[ "$match" == wan\ *\ (445|139) ]] && fail "$kind would shape the Storage Box: $match"
+  done
+  assert_eq "wan tcp 22"         "$(transport_shape_match ssh)"
+  assert_eq "wan udp 51820"      "$(transport_shape_match wireguard)"
+  assert_eq "tailscale0 tcp 445" "$(transport_shape_match tailscale)"
+}
+
+test_apply_sends_the_transports_match_with_the_rate() {
+  local sent
+  sent="$(
+    uplink_shaper_source() { print -r -- "#!/bin/bash" }
+    ssh_put_data() { return 0 }
+    # Into a file: uplink_apply runs ssh_run in a command substitution, so a
+    # variable set there would not survive it.
+    local log="${TMBOX_STATE_DIR}/sent"
+    ssh_run() { print -r -- "$2" >> "$log"; print -r -- "configured=20000 active=20000 dropped=0 match=wan/udp/51820" }
+    state_set transport wireguard >/dev/null 2>&1
+    uplink_apply 203.0.113.9 20000 >/dev/null 2>&1
+    state_unset transport >/dev/null 2>&1
+    cat -- "$log"; rm -f -- "$log"
+  )"
+  assert_contains "$sent" "tmbox-shape match wan udp 51820"
+  assert_contains "$sent" "tmbox-shape set 20000"
 }
 
 test_the_shaper_is_embedded_in_the_build() {

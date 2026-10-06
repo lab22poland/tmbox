@@ -168,12 +168,23 @@ doctor_check_tunnel_stability() {
 # to one address and home addresses change. When it happens, backups stop and
 # nothing on the Mac explains why - so this is the check that earns the
 # transport decision its keep.
+#
+# Two things soften it since #22. A firewall opened to any address has nothing
+# to re-pin. And with a VPN transport the backups do not use the public SSH
+# port at all, so a stale pin only costs the administrative fallback - a
+# warning, not a failure.
 
 doctor_check_reachability() {
   ui_rule "Reaching the appliance"
   ui_blank
 
   local recorded; recorded="$(state_get admin_cidr)"
+  if [[ "$recorded" == any ]]; then
+    doc_pass "The firewall admits SSH from any address." \
+             "Only tmbox's own keys can log in. To pin it to this connection again: tmbox firewall pin"
+    return 0
+  fi
+
   local current
   if ! current="$(public_ipv4)"; then
     doc_warn "Could not work out this connection's public address." \
@@ -196,16 +207,19 @@ doctor_check_reachability() {
     fi
     TMBOX_HCLOUD_TOKEN="$token"
     ui_item "Re-pinning the firewall to ${current}…"
-    if hc_firewall_set_admin_cidr "$fw" "${current}/32" >/dev/null 2>&1; then
+    if hc_firewall_set_admin_cidr "$fw" "${current}/32" "$(transport_udp_port)" >/dev/null 2>&1; then
       state_set admin_cidr "${current}/32"
       doc_pass "The address had changed to ${current}; the firewall now allows it."
     else
       doc_fail "This Mac's address changed to ${current} and Hetzner refused the update." \
                "The full exchange is in ${TMBOX_LOG_FILE}."
     fi
+  elif [[ "$(transport_kind)" != ssh ]]; then
+    doc_warn "This Mac's address has changed - the firewall still allows ${recorded:-nothing}, but you are now ${current}." \
+             "Backups go through $(transport_label) and are not affected; only SSH from outside it is. Fix: tmbox doctor --fix"
   else
     doc_fail "This Mac's address has changed - the firewall still allows ${recorded:-nothing}, but you are now ${current}." \
-             "Backups will fail until it is updated. Fix: tmbox doctor --fix"
+             "Backups will fail until it is updated. Fix: tmbox doctor --fix, or, on a connection whose address keeps changing: tmbox firewall any"
   fi
 }
 
@@ -220,7 +234,7 @@ doctor_check_appliance() {
   ui_rule "The appliance"
   ui_blank
 
-  local host; host="$(state_get server_ip)"
+  local host; host="$(appliance_host)"
   if [[ -z "$host" ]]; then
     doc_fail "No appliance address is recorded on this Mac."
     return 0

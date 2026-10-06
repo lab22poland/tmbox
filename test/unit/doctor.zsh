@@ -16,6 +16,7 @@ source "$TMBOX_ROOT/lib/state.zsh"
 source "$TMBOX_ROOT/lib/secrets.zsh"
 source "$TMBOX_ROOT/lib/sshx.zsh"
 source "$TMBOX_ROOT/lib/macos.zsh"
+source "$TMBOX_ROOT/lib/transport.zsh"
 source "$TMBOX_ROOT/lib/uplink.zsh"
 source "$TMBOX_ROOT/cmd/tunnel.zsh"
 source "$TMBOX_ROOT/cmd/status.zsh"
@@ -123,16 +124,20 @@ test_the_probe_is_not_a_tcp_connect() {
   # running Samba. Measured against a deliberately locked appliance, where
   # `nc -z` reported success while every backup failed.
   # Extracted by line range rather than by parameter expansion: the comment
-  # above the function names it too, so `${src#*tunnel_listening() {}` matched
+  # above the function names it too, so `${src#*smb_probe() {}` matched
   # inside the comment and cut the wrong text.
   local body
   # No `--` before the filename: BSD awk, which is what macOS ships, takes it
   # as a file to read rather than as an end-of-options marker, and then reads
   # nothing at all.
-  body="$(awk '/^tunnel_listening\(\) \{/,/^\}/' "$TMBOX_ROOT/cmd/tunnel.zsh")"
+  body="$(awk '/^smb_probe\(\) \{/,/^\}/' "$TMBOX_ROOT/lib/transport.zsh")"
   assert_nonempty "$body" "the function must still be findable"
   assert_contains "$body" "TMBOX_SMB_NEGOTIATE_B64" "it must speak SMB"
   assert_not_contains "$body" "nc -z" "a bare connect is what this replaced"
+
+  # And the tunnel's own check is that probe, not a connect of its own.
+  body="$(awk '/^tunnel_listening\(\) /,/\}$/' "$TMBOX_ROOT/cmd/tunnel.zsh")"
+  assert_contains "$body" "smb_probe" "the tunnel check goes through the SMB probe"
 }
 
 # --- the verdict ------------------------------------------------------------
