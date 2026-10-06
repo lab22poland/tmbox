@@ -195,9 +195,12 @@ tailscale_up() {
   [[ "$host" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || die "not a hostname: '$host'"
   command -v tailscale >/dev/null 2>&1 || die "tailscale is not installed"
 
-  local keyfile
-  keyfile="$(mktemp /run/tmbox-ts.XXXXXX)"
-  trap 'rm -f "$keyfile"' EXIT
+  # Global, not local: the EXIT trap runs after this function has returned,
+  # and under set -u a local it named would be an unbound variable - which
+  # turned a successful join into exit status 1.
+  TS_KEYFILE="$(mktemp /run/tmbox-ts.XXXXXX)"
+  local keyfile="$TS_KEYFILE"
+  trap 'rm -f "${TS_KEYFILE:-}"' EXIT
   chmod 0600 "$keyfile"
   cat > "$keyfile"
   [ -s "$keyfile" ] || die "no auth key on stdin"
@@ -236,14 +239,22 @@ show() {
     local last
     last="$(wg show "$WG_IF" latest-handshakes 2>/dev/null | awk '{print $2; exit}' || true)"
     if [ -n "$last" ] && [ "$last" != 0 ]; then hs=$(( $(date +%s) - last )); fi
-  elif command -v tailscale >/dev/null 2>&1 && systemctl is-active --quiet tailscaled 2>/dev/null; then
+  fi
+  # The tailnet address whatever the transport, so that switching to Tailscale
+  # finds an appliance that has already joined - and does not spend a second
+  # auth key on it, which a one-off key would refuse.
+  if command -v tailscale >/dev/null 2>&1 && systemctl is-active --quiet tailscaled 2>/dev/null; then
     # Logged out, `tailscale ip` fails - and under set -e that failure would
     # end the report with nothing printed at all.
     ts_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
-    if [ -n "$ts_ip" ]; then kind=tailscale; up=yes; else ts_ip=-; fi
-    # Absent when key expiry is disabled, as it is for tagged machines.
-    ts_exp="$(tailscale status --json 2>/dev/null | jq -r '.Self.KeyExpiry // "-"' 2>/dev/null || true)"
-    [ -n "$ts_exp" ] || ts_exp=-
+    if [ -n "$ts_ip" ]; then
+      [ "$kind" = none ] && { kind=tailscale; up=yes; }
+      # Absent when key expiry is disabled, as it is for tagged machines.
+      ts_exp="$(tailscale status --json 2>/dev/null | jq -r '.Self.KeyExpiry // "-"' 2>/dev/null || true)"
+      [ -n "$ts_exp" ] || ts_exp=-
+    else
+      ts_ip=-
+    fi
   fi
   guard_on && guard=on
   printf 'transport=%s up=%s guard=%s handshake=%s ts_ip=%s ts_expiry=%s\n' "$kind" "$up" "$guard" "$hs" "$ts_ip" "$ts_exp"

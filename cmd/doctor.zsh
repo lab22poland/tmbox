@@ -222,11 +222,12 @@ doctor_check_tailscale() {
     fi
   fi
 
-  # The trap the WireGuard tests found, with Tailscale's name on it: a backup
-  # attempted while Tailscale was off - or on another tailnet - leaves a route
-  # to the appliance cloned from the default one, more specific than
-  # Tailscale's own 100.64.0.0/10, and macOS keeps using it for up to an hour
-  # after Tailscale is back. Every connection then leaves through Wi-Fi.
+  # The trap the WireGuard tests found: a connection attempted while the
+  # tunnel was down leaves a route to the appliance cloned from the default
+  # one, and while it stands every connection leaves through Wi-Fi. With
+  # Tailscale 1.102 it did not happen in the Tart guest - macOS dropped the
+  # clone the moment Tailscale's own 100.64.0.0/10 came back - so this is a
+  # cheap check for a case not seen, not a fix for one that was.
   local via; via="$(route -n get "$ip" 2>/dev/null | awk '/interface:/ {print $2}')"
   if [[ -n "$via" && "$via" != utun* ]]; then
     if (( DOCTOR_FIX )) && priv_prime >/dev/null 2>&1 \

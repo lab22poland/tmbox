@@ -121,7 +121,10 @@ destroy_tm_destination() {
   [[ -n "$id" ]] || id="$(tm_destination_id "tm-$(state_get mac_name)")" || id=""
   [[ -n "$id" ]] || return 0
   # Only what Time Machine still has. destinationinfo needs no Full Disk Access.
-  tm_destinations_plist 2>/dev/null | grep -q -- "$id" || return 0
+  # Captured rather than piped to grep -q, which under pipe_fail can fail on a
+  # match: tmutil, still writing, gets SIGPIPE when grep exits (#22).
+  local plist; plist="$(tm_destinations_plist 2>/dev/null)" || plist=""
+  [[ "$plist" == *"$id"* ]] || return 0
 
   # removedestination does need it, and without it fails with the same exit
   # code as everything else. Not a reason to stop a teardown: say what to run.

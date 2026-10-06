@@ -562,7 +562,9 @@ ts_running() { [[ "$(ts_field '.BackendState')" == Running ]] }
 # the standalone package when there is none, with the owner's agreement; the
 # app's own first run - the system extension, the VPN configuration and the
 # login - needs clicks that no script can make, so it waits for them.
+typeset -gi TMBOX_TS_CHECKED=0
 ts_preflight() {
+  (( TMBOX_TS_CHECKED )) && return 0
   if ! ts_cli >/dev/null; then
     ui_blank
     ui_say "Tailscale is not installed on this Mac. tmbox can install the standalone app from Tailscale's own server (${TMBOX_TS_PKG_URL}), after checking that the package is signed by Tailscale and notarised by Apple."
@@ -594,6 +596,7 @@ ts_preflight() {
   [[ -n "$mine" ]] || { ui_bad "Tailscale did not report an IPv4 address for this Mac."; return 1 }
   state_set tailscale_tailnet "$tailnet" tailscale_mac_ip "$mine"
   ui_ok "Tailscale is running on this Mac (${mine}, tailnet ${tailnet:-unknown})."
+  TMBOX_TS_CHECKED=1
   return 0
 }
 
@@ -872,8 +875,12 @@ transport_repoint_destination() {
   # destinationinfo names a destination and its id, not its URL, so "already
   # there" is the recorded URL plus Time Machine still having the recorded id.
   local id; id="$(state_get destination_id)"
-  if [[ "$(state_get destination_url)" == "$url" && -n "$id" ]] \
-     && tm_destinations_plist 2>/dev/null | grep -q -- "$id"; then
+  #
+  # Captured, then matched: `| grep -q` under pipe_fail fails whenever grep
+  # finds its match and exits while tmutil is still writing, so a destination
+  # that was there read as missing and was replaced on every run.
+  local plist; plist="$(tm_destinations_plist 2>/dev/null)" || plist=""
+  if [[ "$(state_get destination_url)" == "$url" && -n "$id" && "$plist" == *"$id"* ]]; then
     return 0
   fi
 
