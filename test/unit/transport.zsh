@@ -450,3 +450,10 @@ test_the_wireguard_helper_routes_the_appliance_through_the_tunnel_itself() {
   assert_contains "$src" 'route -q -n delete -inet -host "$W_PEER"'
   assert_contains "$src" 'route -q -n add -inet -host "$W_PEER" -interface "$IFN"'
 }
+
+test_the_smb_probe_bounds_the_connect_and_not_only_the_wait() {
+  # macOS nc's -w does not bound a connect; -G does. Without it a probe sent
+  # before the tunnel was up hung for the kernel's 75 seconds.
+  local body; body="$(awk '/^smb_probe\(\) \{/,/^\}/' "$TMBOX_ROOT/lib/transport.zsh")"
+  assert_contains "$body" 'nc -G "$timeout" -w "$timeout"'
+}

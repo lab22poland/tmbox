@@ -369,6 +369,13 @@ wg_daemon_install() {
   ui_spin_stop ok "WireGuard tunnel installed"
 
   ui_spin_start "Waiting for Samba to answer through it"
+  # Not a single probe until the route goes through the tunnel: one sent
+  # before that leaves from the Wi-Fi or Ethernet address, which the guard on
+  # the appliance drops, and it waits out its whole timeout.
+  local -i waited=0
+  while (( waited < 15 )) && [[ "$(route -n get "$TMBOX_WG_APPLIANCE" 2>/dev/null | awk '/interface:/ {print $2}')" != utun* ]]; do
+    sleep 1; (( waited++ ))
+  done
   if ! smb_wait "$TMBOX_WG_APPLIANCE" 40; then
     ui_spin_stop bad "Nothing answers at ${TMBOX_WG_APPLIANCE}:445"
     wg_diagnose

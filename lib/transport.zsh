@@ -158,9 +158,14 @@ smb_probe() {
   local -i timeout="${2:-6}"
   [[ -n "$host" ]] || return 1
   local reply
+  # -G as well as -w. On macOS -w only bounds an idle connection; the connect
+  # itself waits for the kernel's own timeout, about 75 seconds. A probe sent
+  # while a WireGuard tunnel was still coming up therefore hung for 77 seconds
+  # on a SYN that had gone out of the wrong interface, measured three times
+  # in a row, and every later probe waited behind it.
   reply="$(print -rn -- "$TMBOX_SMB_NEGOTIATE_B64" \
     | base64 -D 2>/dev/null \
-    | nc -w "$timeout" "$host" 445 2>/dev/null \
+    | nc -G "$timeout" -w "$timeout" "$host" 445 2>/dev/null \
     | dd bs=1 skip=4 count=4 2>/dev/null)"
   [[ "$reply" == $'\xfeSMB' ]]
 }
