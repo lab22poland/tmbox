@@ -521,13 +521,18 @@ ts_run() {
 # With more than one installed, the one whose daemon answers wins: an app that
 # was installed and never started, next to a tailscaled that runs, must not
 # make Tailscale look switched off.
+#
+# Decided once per run: probing a CLI that hangs costs its whole timeout.
+typeset -g TMBOX_TS_CLI=""
 ts_cli() {
+  [[ -n "$TMBOX_TS_CLI" ]] && { print -rn -- "$TMBOX_TS_CLI"; return 0 }
   local c first=""
   for c in /Applications/Tailscale.app/Contents/MacOS/Tailscale \
            /opt/homebrew/bin/tailscale /usr/local/bin/tailscale; do
     [[ -x "$c" ]] || continue
     [[ -n "$first" ]] || first="$c"
     if ts_run "$c" status --json 2>/dev/null | jq -e '.BackendState' >/dev/null 2>&1; then
+      TMBOX_TS_CLI="$c"
       print -rn -- "$c"
       return 0
     fi
