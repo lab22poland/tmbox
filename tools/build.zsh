@@ -46,6 +46,7 @@ typeset -ga LIBS=(
   lib/secrets.zsh
   lib/sshx.zsh
   lib/macos.zsh
+  lib/transport.zsh
   lib/hcloud.zsh
   lib/hbox.zsh
   lib/preflight.zsh
@@ -60,6 +61,7 @@ typeset -ga CMDS=(
   cmd/unlock.zsh
   cmd/destroy.zsh
   cmd/limit.zsh
+  cmd/firewall.zsh
 )
 
 mkdir -p dist

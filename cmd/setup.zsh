@@ -166,7 +166,7 @@ setup_resume_summary() {
   ui_kv "Storage Box"  "$(state_has box_id && print -rn -- "$done $(state_get box_id)" || print -rn -- "$todo")"
   ui_kv "Server"       "$(state_has server_id && print -rn -- "$done $(state_get server_ip)" || print -rn -- "$todo")"
   ui_kv "Built"        "$([[ "$(state_get bootstrapped)" == yes ]] && print -rn -- "$done" || print -rn -- "$todo")"
-  ui_kv "Tunnel"       "$([[ -f "$TMBOX_TUNNEL_PLIST" ]] && print -rn -- "$done" || print -rn -- "$todo")"
+  ui_kv "Transport"    "$(transport_label)$([[ "$(state_get transport_ready)" == yes || -f "$TMBOX_TUNNEL_PLIST" ]] && print -rn -- " $done" || print -rn -- ", $todo")"
   ui_kv "Time Machine" "$(state_has destination_id && print -rn -- "$done" || print -rn -- "$todo")"
 }
 
@@ -175,7 +175,7 @@ setup_resume_summary() {
 setup_step1_welcome() {
   ui_banner "tmbox ${TMBOX_VERSION}" "A private Time Machine destination you own outright"
 
-  ui_say "tmbox builds a backup appliance in your own Hetzner account. The backups live on hardware you rent, reachable only through an SSH tunnel from this Mac. Nothing about it is hosted by us."
+  ui_say "tmbox builds a backup appliance in your own Hetzner account. The backups live on hardware you rent, reachable only from this Mac, through an encrypted tunnel. Nothing about it is hosted by us."
   ui_blank
   ui_say "You need a payment card and about twenty minutes. Nothing is created, and nothing is charged, until you confirm on a screen showing the exact monthly cost."
   ui_blank
@@ -389,7 +389,11 @@ setup_step4_confirm() {
   # exactly 5 TiB but 5.5 TB - and showing "5.5 TB" next to a tier Hetzner
   # markets as 5 TB reads like an error rather than like precision.
   ui_kv "Storage Box" "$(printf '%s - %.0f TiB' "${(U)box_type}" $(( box_size / 1024.0**4 )))"
-  ui_kv "Firewall"    "SSH from this connection only; SMB never exposed"
+  if [[ "$(setup_admin_choice)" == any ]]; then
+    ui_kv "Firewall"  "SSH from any address, keys only; SMB never exposed"
+  else
+    ui_kv "Firewall"  "SSH from this connection only; SMB never exposed"
+  fi
   ui_kv "IPv4"        "one address, reserved so it survives a rebuild"
   ui_blank
   ui_kv "Server"      "$(printf 'EUR %6.2f / month' $srv_price)"
@@ -555,6 +559,17 @@ setup_provision_fw() {
     return 0
   fi
 
+  # Decided once, here, and recorded: open to any address, or pinned to this
+  # one (#22). See hc_firewall_rules for what "any" exposes, which is very
+  # little - and why a Mac on a phone's hotspot wants it.
+  if [[ "$(setup_admin_choice)" == any ]]; then
+    ui_spin_start "Creating the firewall"
+    local id; id="$(setup_require "$(hc_firewall_create "$base" any "$(transport_udp_port)")" "create the firewall")"
+    state_set firewall_id "$id" admin_cidr any
+    ui_spin_stop ok "Firewall created - SSH from any address, keys only; SMB not exposed at all"
+    return 0
+  fi
+
   ui_spin_start "Detecting this connection's public address"
   local ip
   if ! ip="$(public_ipv4)"; then
@@ -565,7 +580,7 @@ setup_provision_fw() {
   ui_spin_stop ok "This connection appears as ${ip}"
 
   ui_spin_start "Creating the firewall"
-  local id; id="$(setup_require "$(hc_firewall_create "$base" "${ip}/32")" "create the firewall")"
+  local id; id="$(setup_require "$(hc_firewall_create "$base" "${ip}/32" "$(transport_udp_port)")" "create the firewall")"
   state_set firewall_id "$id" admin_cidr "${ip}/32"
   ui_spin_stop ok "Firewall created - SSH from ${ip} only, SMB not exposed at all"
 }
@@ -579,6 +594,8 @@ setup_provision_fw() {
 setup_follow_address() {
   local recorded current
   recorded="$(state_get admin_cidr)"
+  # Open to any address: there is nothing to follow.
+  [[ "$recorded" == any ]] && return 0
   if ! current="$(public_ipv4)"; then
     ui_warn "Could not check this connection's public address."
     ui_say "If it has changed since the firewall was created, the appliance will not answer. tmbox doctor --fix re-pins it."
@@ -587,9 +604,23 @@ setup_follow_address() {
   [[ "$recorded" == "${current}/32" ]] && return 0
 
   ui_spin_start "This connection's address changed to ${current}; updating the firewall"
-  hc_firewall_set_admin_cidr "$(state_get firewall_id)" "${current}/32"
+  hc_firewall_set_admin_cidr "$(state_get firewall_id)" "${current}/32" "$(transport_udp_port)"
   state_set admin_cidr "${current}/32"
   ui_spin_stop ok "The firewall now allows ${current}"
+}
+
+# setup_admin_choice - "any" or "pin", from --admin-cidr
+#
+# Not asked: the pin is right for nearly everyone, and the people for whom it
+# is wrong - whose address changes under them - are the ones who will have read
+# why. `tmbox firewall any` changes it later.
+setup_admin_choice() {
+  local want="${(L)$(ans_get ADMIN_CIDR)}"
+  case "$want" in
+    ""|auto|pin|this) print -rn -- pin ;;
+    any|open|all)     print -rn -- any ;;
+    *) ui_die "--admin-cidr takes 'auto' (this connection's address only) or 'any'." ;;
+  esac
 }
 
 setup_provision_ip() {
@@ -675,13 +706,20 @@ EOF
 
 # --- what exists ------------------------------------------------------------
 
+# setup_admin_label - who the firewall lets in, for people
+setup_admin_label() {
+  local cidr; cidr="$(state_get admin_cidr)"
+  [[ "$cidr" == any ]] && { print -rn -- "any address (keys only)"; return 0 }
+  print -rn -- "${cidr:-nowhere}"
+}
+
 setup_show_state() {
   ui_rule "What exists now"
   ui_blank
   ui_kv "Server"      "$(state_get server_id) at $(state_get server_ip)"
   ui_kv "Storage Box" "$(state_get box_id) - $(state_get box_server)"
   ui_kv "Subaccount"  "$(state_get box_subaccount)"
-  ui_kv "Firewall"    "$(state_get firewall_id) - SSH from $(state_get admin_cidr)"
+  ui_kv "Firewall"    "$(state_get firewall_id) - SSH from $(setup_admin_label)"
   ui_kv "Cost"        "about EUR $(state_get monthly_eur) / month, net"
   ui_blank
   # Meant to be copied into a terminal - see ssh_hint for why it carries the
@@ -997,7 +1035,7 @@ setup_step8_destination() {
   ui_step 8 $SETUP_STEPS "Pointing Time Machine at it"
 
   local share="tm-$(state_get mac_name)"
-  local url="smb://${TMBOX_SHARE_USER}@${TM_LOOPBACK_ALIAS}/${share}"
+  local url; url="$(transport_url "$share")"
 
   # Idempotent, and not only for tidiness: adding a destination twice is how a
   # Mac ends up with two entries for the same share and alternates between
@@ -1265,7 +1303,7 @@ setup_step9_first_backup() {
 
   # Before the backup starts and after any other one has finished: the only
   # moment the line is idle enough for the measurement to mean something (#20).
-  limit_setup "$(state_get server_ip)"
+  limit_setup "$(appliance_host)"
   ui_blank
 
   if [[ "$answer" == "0" ]]; then

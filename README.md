@@ -175,6 +175,18 @@ under load is often well below what a speed test shows, so if the network still
 suffers during a backup, lower the number. Appliances built before 0.1.4 get
 the shaper the first time this is run.
 
+**`tmbox firewall [any | pin]`** shows or changes who may reach the
+appliance's SSH. By default the Hetzner firewall admits only this Mac's public
+address, and setup and `tmbox doctor --fix` re-pin it when the address changes.
+On a connection whose address keeps changing - a phone's hotspot, LTE, 5G -
+every change locks the Mac out until then, and with the SSH tunnel the backups
+stop. `tmbox firewall any` opens SSH to every address instead: the appliance's
+sshd accepts no passwords, only tmbox's two keys, and the one this Mac keeps
+for the tunnel can open a single forward to Samba and nothing else. SMB itself
+is never opened to the internet either way. `tmbox firewall pin` limits it to
+this connection's address again, and with no argument the command shows the
+rules Hetzner has in force.
+
 **`tmbox tunnel <action>`** manages the LaunchDaemon that carries SMB over SSH.
 Actions: `install`, `uninstall`, `start`, `stop`, `restart`, and `status` (the
 default). Setup installs the tunnel itself; these are for repair. A stopped
@@ -223,6 +235,7 @@ Setup answers:
 | `--backup-wait` | Minutes to watch the first backup. `0` starts it and returns; unset watches until it ends |
 | `--zfs-passphrase` | The appliance's dataset passphrase, for `tmbox unlock` |
 | `--uplink-limit` | Cap backups at this many Mbit/s; `auto` takes 80% of a measured upload, `off` sets no cap. Default `auto` |
+| `--admin-cidr` | Who may reach the appliance's SSH: `auto`, this connection's address only, or `any`. See `tmbox firewall`. Default `auto` |
 
 Any answer can also be given as `TMBOX_ANSWER_<KEY>` in the environment, for
 example `TMBOX_ANSWER_CAPACITY=2TB`.
@@ -289,10 +302,11 @@ Read these before you trust it with your only backup.
   cannot clear this. It warns you when it replaces an old destination itself;
   if you removed it by hand or chose a different name, restart the Mac before
   the first backup.
-- **The firewall is pinned to your Mac's public IP address.** When that address
-  changes - a new ISP lease, another network - backups stop. Run `tmbox doctor
-  --fix` to re-pin it. That needs the Hetzner API token this Mac saved during
-  setup.
+- **The firewall is pinned to your Mac's public IP address** unless you choose
+  otherwise. When that address changes - a new ISP lease, another network -
+  backups stop. Run `tmbox doctor --fix` to re-pin it; that needs the Hetzner
+  API token this Mac saved during setup. On a connection whose address changes
+  often, `tmbox firewall any` (or `--admin-cidr any` at setup) removes the pin.
 - **macOS 26 or later only, and one server type.** The appliance is always a
   Hetzner CAX11 (Arm64) running Debian 13.
 

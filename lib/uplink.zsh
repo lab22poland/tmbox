@@ -87,12 +87,16 @@ uplink_shaper_source() {
 #
 # The script is sent every time rather than once at bootstrap, so an appliance
 # built before it existed gets it here, and one built with an older copy gets
-# the current one. Prints the shaper's own report of what is now in force.
+# the current one. So is the match for the transport in use (#22): the limit
+# has to catch whatever the backups actually arrive as. Prints the shaper's own
+# report of what is now in force.
 uplink_apply() {
   local host="$1" rate="$2" src out
   src="$(uplink_shaper_source)" || return 1
   ssh_put_data "$host" "$src" "$UPLINK_SHAPER" 0755 >/dev/null 2>&1 || return 1
-  out="$(ssh_run "$host" "$UPLINK_SHAPER set ${(q)rate}" 2>&1)" || {
+  local -a match
+  match=( ${(s: :)"$(transport_shape_match)"} )
+  out="$(ssh_run "$host" "$UPLINK_SHAPER match ${(j: :)${(@q)match}} >/dev/null && $UPLINK_SHAPER set ${(q)rate}" 2>&1)" || {
     log_warn "tmbox-shape set ${rate}: ${out}"
     return 1
   }

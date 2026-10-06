@@ -177,7 +177,7 @@ hc_ssh_key_delete() { hc DELETE "/ssh_keys/${1}" }
 
 # --- firewall ---------------------------------------------------------------
 
-# hc_firewall_create <name> <admin-cidr> - id
+# hc_firewall_rules <admin-cidr|any> [udp-port] - the whole rule set, as JSON
 #
 # The resting state, and the whole of it. Inbound default is deny, so what is
 # absent matters as much as what is present:
@@ -186,31 +186,57 @@ hc_ssh_key_delete() { hc DELETE "/ssh_keys/${1}" }
 #           and, in a disaster, the SSH forward that reaches the backups.
 #   icmp    from the same address, so `tmbox doctor` can tell "unreachable"
 #           from "reachable but refusing".
+#   udp/N   from anywhere, only when the transport is WireGuard (51820) or
+#           Tailscale (41641). Neither answers a packet that does not carry a
+#           valid key, so the port shows nothing to anyone else (#22).
 #   tcp/445 nowhere. SMB is never exposed to the internet; it travels inside the
-#           SSH forward. This is the project's oldest rule.
+#           SSH forward or the VPN. This is the project's oldest rule.
 #
 # The address is re-detected on every run and never stored, because a home
 # connection's address changes and a stale rule locks the owner out of their own
 # appliance.
+#
+# **"any" opens tcp/22 and icmp to every address** (#22). For a Mac whose
+# address changes all the time - a phone's hotspot, LTE - the pin is a lockout
+# waiting to happen, and what it protects is an sshd that accepts nothing but
+# tmbox's two keys, one of which can open a single forward and nothing else.
+# Opt-in, and reported as such by doctor.
+hc_firewall_rules() {
+  local cidr="$1" udp="${2:-}"
+  local sources
+  if [[ "$cidr" == any ]]; then
+    sources='["0.0.0.0/0","::/0"]'
+  else
+    sources="$(jq -cn --arg c "$cidr" '[$c]')"
+  fi
+  jq -cn --argjson s "$sources" --arg u "$udp" '
+    [ {direction:"in", protocol:"tcp",  port:"22", source_ips:$s, description:"administration and the restore forward"},
+      {direction:"in", protocol:"icmp",            source_ips:$s, description:"reachability checks"} ]
+    + (if $u == "" then [] else
+        [ {direction:"in", protocol:"udp", port:$u, source_ips:["0.0.0.0/0","::/0"], description:"the backup tunnel (WireGuard or Tailscale)"} ]
+      end)'
+}
+
+# hc_firewall_create <name> <admin-cidr|any> [udp-port] - id
 hc_firewall_create() {
-  local name="$1" cidr="$2"
-  hc POST "/firewalls" "$(jq -n --arg n "$name" --arg c "$cidr" '{
+  local name="$1" rules
+  rules="$(hc_firewall_rules "$2" "${3:-}")"
+  hc POST "/firewalls" "$(jq -n --arg n "$name" --argjson r "$rules" '{
       name: $n,
       labels: {tmbox: "1"},
-      rules: [
-        {direction:"in", protocol:"tcp",  port:"22", source_ips:[$c], description:"administration and the restore forward"},
-        {direction:"in", protocol:"icmp",            source_ips:[$c], description:"reachability checks"}
-      ]
+      rules: $r
     }')" || hc_fail "creating the firewall"
   json_get_or_die "$HTTP_BODY" '.firewall.id' "the new firewall's id"
 }
 
-# hc_firewall_set_admin_cidr <firewall-id> <cidr>
+# hc_firewall_set_admin_cidr <firewall-id> <cidr|any> [udp-port]
 #
 # Replaces the whole rule set rather than editing it. Hetzner has no
 # "change one rule" call, and a read-modify-write here would be a way to
 # accidentally preserve a rule that should have expired - which is exactly how
-# an open tcp/445 survived a teardown on an earlier run of this project.
+# an open tcp/445 survived a teardown on an earlier run of this project. The
+# transport's port is therefore passed every time: a caller that forgot it
+# would close the tunnel the backups travel through.
 #
 # Returns once Hetzner reports the new rules applied, not when it accepts the
 # request. The caller's next move is an ssh connection from the new address,
@@ -218,12 +244,9 @@ hc_firewall_create() {
 # nothing had been changed (#5). The response is an `actions` array - one per
 # server the firewall is applied to - not the single `action` most calls return.
 hc_firewall_set_admin_cidr() {
-  hc POST "/firewalls/${1}/actions/set_rules" "$(jq -n --arg c "$2" '{
-      rules: [
-        {direction:"in", protocol:"tcp",  port:"22", source_ips:[$c], description:"administration and the restore forward"},
-        {direction:"in", protocol:"icmp",            source_ips:[$c], description:"reachability checks"}
-      ]
-    }')" || hc_fail "updating the firewall"
+  hc POST "/firewalls/${1}/actions/set_rules" \
+    "$(jq -n --argjson r "$(hc_firewall_rules "$2" "${3:-}")" '{rules: $r}')" \
+    || hc_fail "updating the firewall"
   local act
   for act in ${(f)"$(json_get '.actions[]?.id' "$HTTP_BODY")"}; do
     hc_wait_action "$act" "applying the firewall rules" 120

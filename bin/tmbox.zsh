@@ -39,10 +39,10 @@ if (( ! ${+TMBOX_BUNDLED} )); then
   # build would disagree with.
   [[ -f "$TMBOX_ROOT/VERSION" ]] && TMBOX_VERSION="$(cat -- "$TMBOX_ROOT/VERSION")"
   local _f
-  for _f in answers log ui json http state secrets sshx macos hcloud hbox preflight uplink; do
+  for _f in answers log ui json http state secrets sshx macos transport hcloud hbox preflight uplink; do
     source "$TMBOX_ROOT/lib/${_f}.zsh"
   done
-  for _f in setup status doctor tunnel unlock destroy limit; do
+  for _f in setup status doctor tunnel unlock destroy limit firewall; do
     [[ -f "$TMBOX_ROOT/cmd/${_f}.zsh" ]] && source "$TMBOX_ROOT/cmd/${_f}.zsh"
   done
 fi
@@ -71,6 +71,7 @@ COMMANDS
     tunnel           start | stop | status - the SSH forward carrying SMB
     unlock           Send the ZFS key so the appliance can serve the share
     limit            [Mbit/s | auto | off] - cap how much upload backups take
+    firewall         [any | pin] - who may reach the appliance's SSH
     destroy          Tear down, in the right order, then audit against the API
 
 GENERAL OPTIONS
@@ -225,6 +226,7 @@ tmbox_main() {
     tunnel)  cmd_tunnel  "${shift_args[@]}" ;;
     unlock)  cmd_unlock  "${shift_args[@]}" ;;
     limit)   cmd_limit   "${shift_args[@]}" ;;
+    firewall) cmd_firewall "${shift_args[@]}" ;;
     destroy)
       ui_init || return 1
       cmd_destroy "${shift_args[@]}"

@@ -14,6 +14,7 @@ source "$TMBOX_ROOT/lib/state.zsh"
 source "$TMBOX_ROOT/lib/secrets.zsh"
 source "$TMBOX_ROOT/lib/sshx.zsh"
 source "$TMBOX_ROOT/lib/macos.zsh"
+source "$TMBOX_ROOT/lib/transport.zsh"
 source "$TMBOX_ROOT/lib/preflight.zsh"
 source "$TMBOX_ROOT/cmd/destroy.zsh"
 
