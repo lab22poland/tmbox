@@ -6,6 +6,8 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
 ### Added
 
 - WireGuard as a second transport, for a Mac whose address keeps changing - a phone's hotspot, LTE, 5G. The SSH tunnel is one TCP connection tied to the Mac's address and ends with it, taking a running backup along; WireGuard follows the Mac to its new address. Setup asks which to use (`--transport`). The Mac's side is `wireguard-go` from Homebrew, installed with your agreement and run by a LaunchDaemon of tmbox's own, or the App Store app (`--wireguard-client`). On the appliance, an nftables guard lets only Samba, SSH and ping through the tunnel, from this Mac only; the firewall opens udp/51820. `status`, `doctor`, `tmbox tunnel` and `destroy` handle it, and administration goes through the tunnel while it is up ([#22](https://github.com/lab22poland/tmbox/issues/22)).
@@ -80,7 +82,8 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
-[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lab22poland/tmbox/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/lab22poland/tmbox/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/lab22poland/tmbox/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/lab22poland/tmbox/compare/v0.1.1...v0.1.2
