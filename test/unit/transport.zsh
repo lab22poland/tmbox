@@ -447,6 +447,7 @@ test_doctor_passes_a_working_direct_tailnet() {
   out="$(
     ts_cli() { print -rn -- /bin/true }
     ts_status() { _ts_json }
+    route() { print -r -- "   interface: utun5" }
     smb_probe() { return 0 }
     doctor_check_tailscale >/dev/null 2>&1
     print -rn -- "$DOCTOR_FAILED $DOCTOR_WARNED"
@@ -460,6 +461,7 @@ test_doctor_fix_moves_the_guard_to_this_macs_new_address() {
   (
     ts_cli() { print -rn -- /bin/true }
     ts_status() { _ts_json owner@example.com 100.64.0.7 }
+    route() { print -r -- "   interface: utun5" }
     smb_probe() { return 0 }
     ssh_run() { print -r -- "$2" >> "$log" }
     DOCTOR_FIX=1
@@ -571,4 +573,19 @@ test_the_smb_probe_bounds_the_connect_and_not_only_the_wait() {
   # before the tunnel was up hung for the kernel's 75 seconds.
   local body; body="$(awk '/^smb_probe\(\) \{/,/^\}/' "$TMBOX_ROOT/lib/transport.zsh")"
   assert_contains "$body" 'nc -G "$timeout" -w "$timeout"'
+}
+
+test_doctor_names_a_route_that_bypasses_tailscale() {
+  _ts_state
+  local out
+  out="$(
+    ts_cli() { print -rn -- /bin/true }
+    ts_status() { _ts_json }
+    route() { print -r -- "   interface: en0" }
+    smb_probe() { return 1 }
+    doctor_check_tailscale >/dev/null 2>&1
+    print -rn -- "$DOCTOR_FAILED"
+  )"
+  assert_eq 1 "$out" "the route is the one failure named"
+  assert_contains "$(cat "$UI_LOG")" "through en0"
 }

@@ -222,6 +222,24 @@ doctor_check_tailscale() {
     fi
   fi
 
+  # The trap the WireGuard tests found, with Tailscale's name on it: a backup
+  # attempted while Tailscale was off - or on another tailnet - leaves a route
+  # to the appliance cloned from the default one, more specific than
+  # Tailscale's own 100.64.0.0/10, and macOS keeps using it for up to an hour
+  # after Tailscale is back. Every connection then leaves through Wi-Fi.
+  local via; via="$(route -n get "$ip" 2>/dev/null | awk '/interface:/ {print $2}')"
+  if [[ -n "$via" && "$via" != utun* ]]; then
+    if (( DOCTOR_FIX )) && priv_prime >/dev/null 2>&1 \
+       && priv_run route -q -n delete -inet -host "$ip" >/dev/null 2>&1 \
+       && [[ "$(route -n get "$ip" 2>/dev/null | awk '/interface:/ {print $2}')" == utun* ]]; then
+      doc_pass "A stale route sent the appliance's address through ${via}; it is removed."
+    else
+      doc_fail "macOS routes the appliance's tailnet address through ${via}, not through Tailscale." \
+        "A route left over from a backup tried while Tailscale was off. Fix: tmbox doctor --fix, or: sudo route -n delete -host ${ip}"
+      return 0
+    fi
+  fi
+
   local peer; peer="$(ts_peer "$ip" "$json")"
   case "$peer" in
     direct*) doc_pass "The appliance is reached directly (${peer#direct })." ;;

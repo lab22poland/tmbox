@@ -81,12 +81,13 @@ tmbox does not install itself as a command. Keep `tmbox.zsh` and run it with
 Setup asks how this Mac should reach the appliance. Both ways are encrypted end
 to end, and in neither is SMB ever exposed to the internet.
 
-| | SSH tunnel (default) | WireGuard |
-|---|---|---|
-| Installs on the Mac | nothing | `wireguard-tools` from Homebrew, with your agreement - or the WireGuard app from the App Store |
-| Survives an address change | no: a running backup stops, and with the firewall pinned the Mac is locked out until `tmbox doctor --fix` | yes: the tunnel follows the Mac, and connections inside it carry on |
-| Time Machine talks to | `127.0.0.2` (a loopback alias) | `10.209.77.1` (the appliance's end of the tunnel) |
-| Opens on the firewall | tcp/22 from your address, or from any with `tmbox firewall any` | the same, plus udp/51820 from any address |
+| | SSH tunnel (default) | WireGuard | Tailscale |
+|---|---|---|---|
+| Installs on the Mac | nothing | `wireguard-tools` from Homebrew, with your agreement - or the WireGuard app from the App Store | the Tailscale app, if it is not there already, with your agreement |
+| Survives an address change | no: a running backup stops, and with the firewall pinned the Mac is locked out until `tmbox doctor --fix` | yes: the tunnel follows the Mac, and connections inside it carry on | yes, the same way |
+| Time Machine talks to | `127.0.0.2` (a loopback alias) | `10.209.77.1` (the appliance's end of the tunnel) | the appliance's address in your tailnet |
+| Opens on the firewall | tcp/22 from your address, or from any with `tmbox firewall any` | the same, plus udp/51820 from any address | the same, plus udp/41641 from any address |
+| Depends on | nothing else | nothing else | your Tailscale account, and the Mac being on that tailnet |
 
 **Pick WireGuard if your Mac's public address changes often** - a phone's
 hotspot, LTE or 5G, a laptop that moves between networks. Measured in a test
@@ -104,8 +105,23 @@ open port shows nothing to anyone else. If you use the App Store app instead,
 setup writes a configuration for you to import; switch on On-Demand in the app,
 or the tunnel is not up after a restart.
 
-**Changing your mind later** is `tmbox transport ssh` or `tmbox transport
-wireguard`: it sets up the new transport, points Time Machine at the same share
+**Tailscale** suits a Mac that already runs it. The appliance joins your
+tailnet with an auth key you make in Tailscale's admin console; tmbox sends it
+to the appliance on standard input and keeps no copy. Tailscale is on one
+tailnet at a time, so **while you have it switched to another tailnet, or
+logged in to another control server, the appliance is out of reach** and
+backups fail until you switch back - `tmbox doctor` says so in those words. If
+you switch tailnets, prefer WireGuard: it runs alongside Tailscale and does not
+care which tailnet that is on. Two more things to know:
+
+- Disable key expiry for the appliance in the admin console's Machines list, or
+  use a tagged auth key, whose machines do not expire. Otherwise the appliance
+  leaves the tailnet when its key expires; `tmbox doctor` warns while it can.
+- If your tailnet has access rules, they have to let this Mac reach the
+  appliance on tcp/445 and tcp/22.
+
+**Changing your mind later** is `tmbox transport ssh`, `tmbox transport
+wireguard` or `tmbox transport tailscale`: it sets up the new transport, points Time Machine at the same share
 through it, and only then removes the old one. The backups stay where they are,
 and Time Machine continues the same history - measured across WireGuard → SSH →
 WireGuard, with incremental backups in between.
@@ -117,7 +133,7 @@ you choose, because they are also the restore path.
 
 - A Mac running macOS 26 or later. Nothing else - no Homebrew, no Xcode tools -
   unless you choose the WireGuard transport, which needs Homebrew or the
-  WireGuard app.
+  WireGuard app, or Tailscale, which needs the Tailscale app and an account.
   tmbox refuses to run on an older macOS, because nothing it does has been
   checked there. Nothing on the Mac side is specific to Apple silicon, but only
   Apple silicon has been tested.
@@ -229,14 +245,15 @@ is never opened to the internet either way. `tmbox firewall pin` limits it to
 this connection's address again, and with no argument the command shows the
 rules Hetzner has in force.
 
-**`tmbox transport [ssh | wireguard]`** shows how backups reach the appliance
+**`tmbox transport [ssh | wireguard | tailscale]`** shows how backups reach the appliance
 and whether SMB answers through it, or switches to the other transport. See
 [Choosing a transport](#choosing-a-transport). It refuses while a backup to the
 appliance is running, and needs Full Disk Access, like setup, because it points
 Time Machine at the new address.
 
 **`tmbox tunnel <action>`** manages the LaunchDaemon that carries SMB over SSH,
-or over WireGuard when that is the transport.
+or over WireGuard when that is the transport. With Tailscale, which tmbox does
+not run, only `status` applies.
 Actions: `install`, `uninstall`, `start`, `stop`, `restart`, and `status` (the
 default). Setup installs the tunnel itself; these are for repair. A stopped
 tunnel means failed backups until it is started again.
@@ -285,8 +302,9 @@ Setup answers:
 | `--zfs-passphrase` | The appliance's dataset passphrase, for `tmbox unlock` |
 | `--uplink-limit` | Cap backups at this many Mbit/s; `auto` takes 80% of a measured upload, `off` sets no cap. Default `auto` |
 | `--admin-cidr` | Who may reach the appliance's SSH: `auto`, this connection's address only, or `any`. See `tmbox firewall`. Default `auto` |
-| `--transport` | How backups reach the appliance: `ssh` or `wireguard`. Default `ssh` when unattended |
+| `--transport` | How backups reach the appliance: `ssh`, `wireguard` or `tailscale`. Default `ssh` when unattended |
 | `--wireguard-client` | WireGuard on this Mac: `brew` (tmbox installs and runs it) or `app` (the App Store app) |
+| `--tailscale-authkey` | The auth key the appliance joins your tailnet with. Never printed or stored |
 
 Any answer can also be given as `TMBOX_ANSWER_<KEY>` in the environment, for
 example `TMBOX_ANSWER_CAPACITY=2TB`.
