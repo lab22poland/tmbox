@@ -29,15 +29,14 @@ costing about **€17.39/month at 2 TB**. You need a Mac, an administrator
 password and a payment card. You do not need a Hetzner account yet, a package
 manager, or any idea what a sparsebundle is.
 
-> **Status: 0.2.2 is the current release.** It is 0.1.0, the first release,
-> with the fixes and additions listed in the changelog; everything said here about 0.1.0
-> applies to it unless the changelog says otherwise. It builds the appliance, connects
-> your Mac to it, points Time Machine at it, starts the first backup, and gives
-> you commands to check, repair, unlock and remove it. It has been run end to
-> end on a stock macOS 26 install with nothing added. It does **not** yet unlock
-> the appliance by itself after a reboot, produce a recovery card, or support
-> restoring from macOS Recovery. Read [Limitations in 0.1.0](#limitations-in-010)
-> before you rely on it.
+> **Status: 0.2.2 is the current release.** It builds the appliance, connects
+> your Mac to it over the transport you choose, points Time Machine at it,
+> starts the first backup, and gives you commands to check, repair, unlock and
+> remove it. It has been run end to end on a stock macOS 26 install with
+> nothing added. It does **not** yet unlock the appliance by itself after a
+> reboot, produce a recovery card, or support restoring from macOS Recovery.
+> Read [Limitations](#limitations) before you rely on it; what changed in each
+> release is in the [changelog](CHANGELOG.md).
 
 ## What it builds
 
@@ -355,7 +354,9 @@ IPv4 address on neither, so its pages add up to €0.50 less than tmbox's total.
 Hetzner bills hourly against a monthly cap, and VAT is added according to your
 account's country.
 
-## Limitations in 0.1.0
+<a id="limitations-in-010"></a>
+
+## Limitations
 
 Read these before you trust it with your only backup.
 
@@ -367,12 +368,12 @@ Read these before you trust it with your only backup.
 - **Restoring needs a working Mac.** To reach your backups you need a Mac with
   tmbox's state (`~/.config/tmbox/`, which holds the keys, the address and the
   credentials) and the ZFS passphrase. Restoring from macOS Recovery is not
-  supported and has not been tested. 0.1.0's testing covered backing up, not
-  restoring.
+  supported and has not been tested. No release has yet been tested
+  restoring; testing so far has covered backing up.
 - **The ZFS passphrase exists only on the Mac that ran setup**, in
   `~/.config/tmbox/secrets/zfs-passphrase`. If that Mac is lost, so are the
-  backups: nobody, including us, can unlock the appliance without it. 0.1.0
-  does not produce a recovery card, so **copy that file - better, the whole
+  backups: nobody, including us, can unlock the appliance without it. tmbox
+  does not produce a recovery card yet, so **copy that file - better, the whole
   `~/.config/tmbox/` directory - somewhere durable that does not depend on
   this Mac**, such as a password manager or an encrypted drive kept elsewhere.
 - **Time Machine's own encryption cannot be turned on for you.** macOS has no
