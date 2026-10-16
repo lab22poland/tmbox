@@ -6,6 +6,10 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `status` reads the monthly cost live instead of repeating the figure setup recorded, which went stale without saying so when Hetzner changed its prices or the server or Storage Box was rescaled in the Console. It prices what actually exists, in its location, shows the total broken down into server, IPv4 and Storage Box - the Console shows no total, and the IPv4 on none of its pages - and adds the figure from setup when the two differ. It stays read-only, asks Hetzner once with a short timeout, and without a token or an answer shows the recorded figure, marked as such ([#29](https://github.com/lab22poland/tmbox/issues/29)).
+
 ## [0.2.1] - 2026-10-06
 
 ### Fixed

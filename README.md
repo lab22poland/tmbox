@@ -181,7 +181,9 @@ at 80% of it - see `tmbox limit`. Needs a terminal unless run with
 
 **`tmbox status`** answers four questions - is a backup running, when was the
 last one, is the tunnel up, how full is the appliance - and shows the upload
-limit and the monthly cost. It is read-only and never changes anything. It still works when the
+limit and the monthly cost - read live from Hetzner for the server and Storage
+Box that actually exist, broken down into server, IPv4 and Storage Box, and
+compared with the figure from setup if it has changed. It is read-only and never changes anything. It still works when the
 appliance is unreachable, and says so.
 
 **`tmbox doctor [--fix]`** runs every known failure as a named check: the
@@ -330,8 +332,11 @@ About **€17.39 a month at 2 TB**, net of VAT, at Hetzner's prices in September
 Everything is billed by Hetzner to your own account; nothing is hosted or
 billed by us. Setup reads the current prices from Hetzner's API and shows the
 total before it creates anything, so the figure on that screen is the one that
-counts. Hetzner bills hourly against a monthly cap, and VAT is added according
-to your account's country.
+counts. Afterwards `tmbox status` reads them again each time it runs. The
+Hetzner Console shows the server and the Storage Box on separate pages and the
+IPv4 address on neither, so its pages add up to €0.50 less than tmbox's total.
+Hetzner bills hourly against a monthly cap, and VAT is added according to your
+account's country.
 
 ## Limitations in 0.1.0
 
