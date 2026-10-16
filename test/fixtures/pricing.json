@@ -1,0 +1,37 @@
+{
+  "pricing": {
+    "currency": "EUR",
+    "vat_rate": "19.00",
+    "primary_ips": [
+      {
+        "type": "ipv4",
+        "prices": [
+          { "location": "fsn1", "price_hourly": { "net": "0.0008", "gross": "0.0008" }, "price_monthly": { "net": "0.5000", "gross": "0.5000" } },
+          { "location": "hel1", "price_hourly": { "net": "0.0008", "gross": "0.0008" }, "price_monthly": { "net": "0.5000", "gross": "0.5000" } }
+        ]
+      },
+      {
+        "type": "ipv6",
+        "prices": [
+          { "location": "fsn1", "price_hourly": { "net": "0.0000", "gross": "0.0000" }, "price_monthly": { "net": "0.0000", "gross": "0.0000" } }
+        ]
+      }
+    ],
+    "server_types": [
+      {
+        "id": 45,
+        "name": "cax11",
+        "prices": [
+          { "location": "fsn1", "price_hourly": { "net": "0.0096", "gross": "0.0096" }, "price_monthly": { "net": "5.9900", "gross": "5.9900" } }
+        ]
+      },
+      {
+        "id": 93,
+        "name": "cax21",
+        "prices": [
+          { "location": "fsn1", "price_hourly": { "net": "0.0160", "gross": "0.0160" }, "price_monthly": { "net": "9.9900", "gross": "9.9900" } }
+        ]
+      }
+    ]
+  }
+}

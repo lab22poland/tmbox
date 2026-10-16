@@ -272,9 +272,94 @@ ${UPLINK_SHAPER} show 2>/dev/null || echo ''"
 
 # --- what it costs ----------------------------------------------------------
 
+#
+# Read live, from what exists, every time (#29). The figure setup recorded is
+# right on the day of the install and goes stale without saying so: Hetzner
+# changed its prices in June 2026, and the Console offers "Rescale" on both the
+# server and the Storage Box. The breakdown is shown because the Console never
+# shows the total - the primary IPv4 is billed apart from the server, so its
+# server page and its Storage Box page add up to 0.50 less than this does.
+#
+# Still read-only: a changed price is reported, not written back over the
+# recorded one. And still fast when things are down, which is when status is
+# run: one attempt per request and a short timeout, then the recorded figure.
+
+typeset -g STATUS_COST_SERVER="" STATUS_COST_SERVER_TYPE=""
+typeset -g STATUS_COST_BOX=""    STATUS_COST_BOX_TYPE=""
+typeset -g STATUS_COST_IPV4=""
+
 status_cost() {
-  local monthly; monthly="$(state_get monthly_eur)"
-  [[ -n "$monthly" ]] || return 0
+  local recorded; recorded="$(state_get monthly_eur)"
+
+  if ! status_cost_read; then
+    [[ -n "$recorded" ]] || return 0
+    ui_blank
+    ui_kv "Cost" "about EUR ${recorded} / month, net"
+    ui_kv ""     "${C_MUTED}at setup; current prices not readable${C_RESET}"
+    return 0
+  fi
+
+  local -F total=$(( STATUS_COST_SERVER + STATUS_COST_BOX + ${STATUS_COST_IPV4:-0} ))
+  local now; now="$(printf '%.2f' $total)"
+
+  local parts
+  parts="$(printf 'server %s %.2f' "${(U)STATUS_COST_SERVER_TYPE}" $STATUS_COST_SERVER)"
+  [[ -n "$STATUS_COST_IPV4" ]] && parts+="$(printf ' · IPv4 %.2f' $STATUS_COST_IPV4)"
+  parts+="$(printf ' · Storage Box %s %.2f' "${(U)STATUS_COST_BOX_TYPE}" $STATUS_COST_BOX)"
+
   ui_blank
-  ui_kv "Cost" "about EUR ${monthly} / month, net"
+  ui_kv "Cost" "EUR ${now} / month, net"
+  ui_kv ""     "${C_MUTED}${parts}${C_RESET}"
+  if [[ -n "$recorded" && "$recorded" != "$now" ]]; then
+    ui_kv ""   "${C_MUTED}EUR ${recorded} when it was set up${C_RESET}"
+  fi
+}
+
+# status_cost_read - fill STATUS_COST_*, or return 1 having shown nothing
+#
+# Three requests: the server and the Storage Box each carry their own type with
+# its prices, so a rescale is priced as what it became; the IPv4 is only in
+# /pricing. Prices are for the location each resource is actually in. Globals
+# rather than stdout, because http_request sets its results in the caller's
+# shell and a $( ) would discard them.
+status_cost_read() {
+  STATUS_COST_SERVER="" STATUS_COST_SERVER_TYPE=""
+  STATUS_COST_BOX=""    STATUS_COST_BOX_TYPE=""
+  STATUS_COST_IPV4=""
+
+  local server_id box_id
+  server_id="$(state_get server_id)"
+  box_id="$(state_get box_id)"
+  [[ -n "$server_id" && -n "$box_id" ]] || return 1
+
+  local TMBOX_HCLOUD_TOKEN
+  TMBOX_HCLOUD_TOKEN="$(kc_get hetzner-token 2>/dev/null)" || return 1
+  [[ -n "$TMBOX_HCLOUD_TOKEN" ]] || return 1
+  http_init || return 1
+
+  local -i HTTP_MAX_ATTEMPTS=1 HTTP_CONNECT_TIMEOUT=5 HTTP_MAX_TIME=10
+
+  local type where
+  hc GET "/servers/${server_id}" || return 1
+  type="$(print -r -- "$HTTP_BODY" | jq -c '.server.server_type // empty' 2>/dev/null)"
+  where="$(print -r -- "$HTTP_BODY" | jq -r \
+    '.server.location.name // .server.datacenter.location.name // empty' 2>/dev/null)"
+  [[ -n "$where" ]] || where="$(state_get region)"
+  STATUS_COST_SERVER_TYPE="$(print -r -- "$type" | jq -r '.name // empty' 2>/dev/null)"
+  STATUS_COST_SERVER="$(hc_type_price "$type" "$where")"
+
+  if state_has primary_ip_id; then
+    hc GET "/pricing" || return 1
+    STATUS_COST_IPV4="$(hc_pricing_ipv4 "$HTTP_BODY" "$where")"
+    [[ -n "$STATUS_COST_IPV4" ]] || return 1
+  fi
+
+  hb GET "/storage_boxes/${box_id}" || return 1
+  type="$(print -r -- "$HTTP_BODY" | jq -c '.storage_box.storage_box_type // empty' 2>/dev/null)"
+  where="$(print -r -- "$HTTP_BODY" | jq -r '.storage_box.location.name // empty' 2>/dev/null)"
+  [[ -n "$where" ]] || where="$(state_get region)"
+  STATUS_COST_BOX_TYPE="$(print -r -- "$type" | jq -r '.name // empty' 2>/dev/null)"
+  STATUS_COST_BOX="$(hc_type_price "$type" "$where")"
+
+  [[ -n "$STATUS_COST_SERVER" && -n "$STATUS_COST_BOX" ]]
 }

@@ -157,6 +157,33 @@ hc_server_locations() {
   json_array '[.server_types[0].prices[].location]' "$HTTP_BODY"
 }
 
+# --- prices -----------------------------------------------------------------
+#
+# Setup's cost screen and status both cost the appliance, and both go through
+# these, so the two can never disagree about what a part costs (#29). Each
+# prints the net monthly price as Hetzner writes it ("5.9900"), or nothing.
+
+# hc_type_price <type-json> <location>
+#
+# Any object with a Hetzner `prices` array: a server type from /pricing or
+# embedded in a server, or a Storage Box type embedded in a Storage Box.
+hc_type_price() {
+  print -r -- "$1" | jq -er --arg l "$2" '
+    .prices[] | select(.location == $l) | .price_monthly.net // empty' 2>/dev/null
+}
+
+# hc_pricing_server <pricing-json> <type-name> <location>
+hc_pricing_server() {
+  hc_type_price "$(print -r -- "$1" | jq -c --arg n "$2" \
+    '.pricing.server_types[] | select(.name == $n)' 2>/dev/null)" "$3"
+}
+
+# hc_pricing_ipv4 <pricing-json> <location> - one primary IPv4
+hc_pricing_ipv4() {
+  hc_type_price "$(print -r -- "$1" | jq -c \
+    '.pricing.primary_ips[] | select(.type == "ipv4")' 2>/dev/null)" "$2"
+}
+
 # --- ssh keys ---------------------------------------------------------------
 
 # hc_ssh_key_find_by_fingerprint <md5-fingerprint> - id, or empty

@@ -1,0 +1,18 @@
+{
+  "storage_box": {
+    "id": 664308,
+    "name": "tmbox-test",
+    "username": "u000000",
+    "status": "active",
+    "location": { "id": 1, "name": "fsn1", "city": "Falkenstein", "country": "DE", "network_zone": "eu-central" },
+    "storage_box_type": {
+      "id": 1333,
+      "name": "bx11",
+      "description": "BX11",
+      "size": 1099511627776,
+      "prices": [
+        { "location": "fsn1", "price_hourly": { "net": "0.0051", "gross": "0.0051" }, "price_monthly": { "net": "3.2000", "gross": "3.2000" }, "setup_fee": { "net": "0.0000", "gross": "0.0000" } }
+      ]
+    }
+  }
+}

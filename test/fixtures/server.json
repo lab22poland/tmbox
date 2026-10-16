@@ -1,0 +1,21 @@
+{
+  "server": {
+    "id": 168547811,
+    "name": "tmbox-test",
+    "status": "running",
+    "location": { "id": 1, "name": "fsn1", "city": "Falkenstein", "country": "DE", "network_zone": "eu-central" },
+    "server_type": {
+      "id": 45,
+      "name": "cax11",
+      "description": "CAX11",
+      "cores": 2,
+      "memory": 4,
+      "disk": 40,
+      "architecture": "arm",
+      "prices": [
+        { "location": "fsn1", "price_hourly": { "net": "0.0096", "gross": "0.0096" }, "price_monthly": { "net": "5.9900", "gross": "5.9900" }, "included_traffic": 21990232555520, "price_per_tb_traffic": { "net": "1.0000", "gross": "1.0000" } },
+        { "location": "hel1", "price_hourly": { "net": "0.0096", "gross": "0.0096" }, "price_monthly": { "net": "5.9900", "gross": "5.9900" }, "included_traffic": 21990232555520, "price_per_tb_traffic": { "net": "1.0000", "gross": "1.0000" } }
+      ]
+    }
+  }
+}
