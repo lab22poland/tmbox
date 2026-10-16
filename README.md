@@ -29,28 +29,36 @@ costing about **€17.39/month at 2 TB**. You need a Mac, an administrator
 password and a payment card. You do not need a Hetzner account yet, a package
 manager, or any idea what a sparsebundle is.
 
-> **Status: 0.2.2 is the current release.** It is 0.1.0, the first release,
-> with the fixes and additions listed in the changelog; everything said here about 0.1.0
-> applies to it unless the changelog says otherwise. It builds the appliance, connects
-> your Mac to it, points Time Machine at it, starts the first backup, and gives
-> you commands to check, repair, unlock and remove it. It has been run end to
-> end on a stock macOS 26 install with nothing added. It does **not** yet unlock
-> the appliance by itself after a reboot, produce a recovery card, or support
-> restoring from macOS Recovery. Read [Limitations in 0.1.0](#limitations-in-010)
-> before you rely on it.
+> **Status: 0.2.2 is the current release.** It builds the appliance, connects
+> your Mac to it over the transport you choose, points Time Machine at it,
+> starts the first backup, and gives you commands to check, repair, unlock and
+> remove it. It has been run end to end on a stock macOS 26 install with
+> nothing added. It does **not** yet unlock the appliance by itself after a
+> reboot, produce a recovery card, or support restoring from macOS Recovery.
+> Read [Limitations](#limitations) before you rely on it; what changed in each
+> release is in the [changelog](CHANGELOG.md).
 
 ## What it builds
 
-```
-Mac (nothing installed)                 Hetzner (your own account)
-┌──────────────────────┐              ┌──────────────────────────────────┐
-│ tmbox.zsh (zsh 5.9)  │   REST/curl  │ CAX11, Debian 13, arm64          │
-│  ├─ curl + plutil    │─────────────►│  ├─ CIFS ──► Storage Box         │
-│  ├─ ssh / ssh-keygen │   ssh, setup │  │    └─ tank.img (container)    │
-│  ├─ osascript        │─────────────►│  ├─ loop, direct-io asserted     │
-│  └─ tmutil           │              │  ├─ ZFS, natively encrypted      │
-└──────────────────────┘  SMB3 in SSH │  └─ Samba + vfs_fruit            │
-                       ◄─────────────►└──────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph mac["Your Mac"]
+    script["tmbox.zsh (zsh 5.9)<br/>curl, plutil, ssh, osascript"]
+    tm["Time Machine"]
+  end
+  subgraph hz["Hetzner, your own account"]
+    api["Hetzner API"]
+    subgraph cax["CAX11, Debian 13, arm64"]
+      samba["Samba + vfs_fruit"]
+      zfs["ZFS, natively encrypted"]
+      loop["loop device, direct-io asserted"]
+    end
+    box[("Storage Box<br/>tank.img container")]
+  end
+  script -->|"REST over HTTPS"| api
+  script -->|"ssh: setup, unlock, status"| cax
+  tm <-->|"SMB 3.1.1 in a tunnel:<br/>SSH, WireGuard or Tailscale"| samba
+  samba --> zfs --> loop -->|"CIFS"| box
 ```
 
 Every layer above was measured on real hardware before it was written into the
@@ -69,8 +77,8 @@ all labelled `tmbox=1`. On your Mac it creates:
 | A loopback alias the SMB client needs | `127.0.0.2` on `lo0` |
 | A Time Machine destination | `smb://tmuser@127.0.0.2/tm-<mac-name>` |
 
-With the WireGuard transport the tunnel's files are different - see
-[Choosing a transport](#choosing-a-transport).
+With the WireGuard or Tailscale transport the tunnel's files and the address
+are different - see [Choosing a transport](#choosing-a-transport).
 
 tmbox does not install itself as a command. Keep `tmbox.zsh` and run it with
 `zsh tmbox.zsh <command>`; the rest of this page writes that as `tmbox
@@ -181,10 +189,12 @@ at 80% of it - see `tmbox limit`. Needs a terminal unless run with
 
 **`tmbox status`** answers four questions - is a backup running, when was the
 last one, is the tunnel up, how full is the appliance - and shows the upload
-limit and the monthly cost - read live from Hetzner for the server and Storage
-Box that actually exist, broken down into server, IPv4 and Storage Box, and
-compared with the figure from setup if it has changed. It is read-only and never changes anything. It still works when the
-appliance is unreachable, and says so.
+limit and the monthly cost. The cost is read live from Hetzner for the server
+and Storage Box that actually exist, so a price change or a rescale in the
+Console shows up; it is broken down into server, IPv4 and Storage Box, and the
+figure from setup is shown next to it when the two differ. It is read-only and
+never changes anything. It still works when the appliance is unreachable, and
+says so.
 
 **`tmbox doctor [--fix]`** runs every known failure as a named check: the
 tunnel daemon, whether Samba actually answers through the tunnel (it sends a
@@ -193,13 +203,18 @@ dropping and restarting, whether the firewall still allows this Mac's current
 public address, whether the appliance is locked, the ZFS pool's health, the
 Storage Box mount, the loop device, Samba, free space, stale Samba sessions,
 whether the upload limit is in force, the Time Machine destination, Time Machine encryption and the last backup.
+With WireGuard or Tailscale it checks that transport instead of the SSH tunnel
+- for Tailscale also whether it is on, on the right tailnet, connected directly
+or through a relay, and whether the appliance's key is about to expire - and a
+stale route that sends the appliance's address around the tunnel.
 
-With `--fix` it repairs the five faults that are safe to repair without
-asking: it re-pins the firewall to this Mac's current address, clears stale
-Samba sessions by restarting Samba, restarts a tunnel that is down, turns
-SMB multichannel off on an appliance built before 0.1.3 - only while no backup
-is running, since that restarts Samba too - and re-applies an upload limit
-that is recorded but not in force.
+With `--fix` it repairs the faults that are safe to repair without asking: it
+re-pins the firewall to this Mac's current address, clears stale Samba
+sessions by restarting Samba, restarts a tunnel that is down, turns SMB
+multichannel off on an appliance built before 0.1.3 - only while no backup is
+running, since that restarts Samba too - re-applies an upload limit that is
+recorded but not in force, lets this Mac's new tailnet address through the
+appliance's guard, and removes a stale route to the appliance.
 Everything else is reported with the command that would fix it.
 
 Exit status, so it can run from cron or a monitoring job:
@@ -325,9 +340,10 @@ TMBOX_ANSWER_HETZNER_TOKEN=... tmbox setup --non-interactive --answers ./studio.
 
 ## What it costs
 
-About **€17.39 a month at 2 TB**, net of VAT, at Hetzner's prices in September
-2026: a CAX11 server with its IPv4 address (€6.49) and a BX21 Storage Box
-(€10.90). 4 TB lands on the same Storage Box tier and costs the same.
+About **€17.39 a month at 2 TB**, net of VAT, at Hetzner's prices in October
+2026: a CAX11 server (€5.99), its IPv4 address (€0.50) and a BX21 Storage Box
+(€10.90). 4 TB lands on the same Storage Box tier and costs the same. 1 TB, on
+a BX11 (€3.20), comes to €9.69.
 
 Everything is billed by Hetzner to your own account; nothing is hosted or
 billed by us. Setup reads the current prices from Hetzner's API and shows the
@@ -338,7 +354,9 @@ IPv4 address on neither, so its pages add up to €0.50 less than tmbox's total.
 Hetzner bills hourly against a monthly cap, and VAT is added according to your
 account's country.
 
-## Limitations in 0.1.0
+<a id="limitations-in-010"></a>
+
+## Limitations
 
 Read these before you trust it with your only backup.
 
@@ -350,12 +368,12 @@ Read these before you trust it with your only backup.
 - **Restoring needs a working Mac.** To reach your backups you need a Mac with
   tmbox's state (`~/.config/tmbox/`, which holds the keys, the address and the
   credentials) and the ZFS passphrase. Restoring from macOS Recovery is not
-  supported and has not been tested. 0.1.0's testing covered backing up, not
-  restoring.
+  supported and has not been tested. No release has yet been tested
+  restoring; testing so far has covered backing up.
 - **The ZFS passphrase exists only on the Mac that ran setup**, in
   `~/.config/tmbox/secrets/zfs-passphrase`. If that Mac is lost, so are the
-  backups: nobody, including us, can unlock the appliance without it. 0.1.0
-  does not produce a recovery card, so **copy that file - better, the whole
+  backups: nobody, including us, can unlock the appliance without it. tmbox
+  does not produce a recovery card yet, so **copy that file - better, the whole
   `~/.config/tmbox/` directory - somewhere durable that does not depend on
   this Mac**, such as a password manager or an encrypted drive kept elsewhere.
 - **Time Machine's own encryption cannot be turned on for you.** macOS has no
@@ -387,9 +405,12 @@ Read these before you trust it with your only backup.
 ## Security model
 
 - **SMB is never exposed to the internet.** The Hetzner firewall allows only
-  SSH and ping, and only from your Mac's public address. Samba is reached
-  through one outbound SSH connection from your Mac, and it requires SMB 3.1.1
-  with encryption on top of that.
+  SSH and ping - from your Mac's public address by default, or from any
+  address after `tmbox firewall any` - plus the WireGuard or Tailscale port
+  when that is the transport. Samba is reached only through the tunnel: over
+  SSH as one forward to the appliance's own loopback, and over WireGuard or
+  Tailscale past an nftables guard that admits only this Mac's tunnel address.
+  Samba requires SMB 3.1.1 with encryption on top of that.
 - **The tunnel's key can do one thing.** On the appliance it is restricted to
   opening a single forward to Samba's port - no shell, no other forward.
 - **Host keys are pinned.** The appliance's SSH host key is recorded on first
