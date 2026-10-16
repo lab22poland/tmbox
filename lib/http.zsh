@@ -35,6 +35,10 @@
 typeset -g  HTTP_STATUS=""
 typeset -g  HTTP_BODY=""
 typeset -gi HTTP_MAX_ATTEMPTS="${HTTP_MAX_ATTEMPTS:-5}"
+# Seconds. A caller that must not stall - status, run exactly when something
+# may be down - shadows these with locals for its own requests (#29).
+typeset -gi HTTP_CONNECT_TIMEOUT="${HTTP_CONNECT_TIMEOUT:-15}"
+typeset -gi HTTP_MAX_TIME="${HTTP_MAX_TIME:-120}"
 
 # http_request <method> <url> [json-body] [token]
 #
@@ -60,7 +64,7 @@ http_request() {
   while (( attempt <= HTTP_MAX_ATTEMPTS )); do
     local -a args=(
       -sS --location
-      --connect-timeout 15 --max-time 120
+      --connect-timeout "$HTTP_CONNECT_TIMEOUT" --max-time "$HTTP_MAX_TIME"
       -X "$method"
       -H 'Accept: application/json'
       -H "User-Agent: tmbox/${TMBOX_VERSION:-dev}"

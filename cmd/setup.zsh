@@ -393,10 +393,8 @@ setup_step4_confirm() {
 
   hc GET "/pricing" || hc_fail "reading prices"
   local srv_price ip_price
-  srv_price="$(print -r -- "$HTTP_BODY" | jq -er --arg l "$region" \
-    '.pricing.server_types[]|select(.name=="cax11")|.prices[]|select(.location==$l)|.price_monthly.net // empty' 2>/dev/null)"
-  ip_price="$(print -r -- "$HTTP_BODY" | jq -er --arg l "$region" \
-    '.pricing.primary_ips[]|select(.type=="ipv4")|.prices[]|select(.location==$l)|.price_monthly.net // empty' 2>/dev/null)"
+  srv_price="$(hc_pricing_server "$HTTP_BODY" cax11 "$region")"
+  ip_price="$(hc_pricing_ipv4 "$HTTP_BODY" "$region")"
   ui_spin_stop ok "Prices read"
 
   [[ -n "$srv_price" && -n "$ip_price" && -n "$box_price" ]] \
