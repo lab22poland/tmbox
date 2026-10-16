@@ -6,6 +6,8 @@ All notable changes to tmbox are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-16
+
 ### Changed
 
 - `status` reads the monthly cost live instead of repeating the figure setup recorded, which went stale without saying so when Hetzner changed its prices or the server or Storage Box was rescaled in the Console. It prices what actually exists, in its location, shows the total broken down into server, IPv4 and Storage Box - the Console shows no total, and the IPv4 on none of its pages - and adds the figure from setup when the two differ. It stays read-only, asks Hetzner once with a short timeout, and without a token or an answer shows the recorded figure, marked as such ([#29](https://github.com/lab22poland/tmbox/issues/29)).
@@ -93,7 +95,8 @@ only on the Mac that ran setup; Time Machine encryption has to be turned on by
 hand; and the firewall must be re-pinned when the Mac's public address changes.
 See [Limitations in 0.1.0](README.md#limitations-in-010) for the full list.
 
-[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/lab22poland/tmbox/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/lab22poland/tmbox/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/lab22poland/tmbox/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/lab22poland/tmbox/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/lab22poland/tmbox/compare/v0.1.3...v0.1.4
